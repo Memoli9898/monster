@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>MasaAz Admin</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{background:#F1F5F9;font-family:'Inter',system-ui,sans-serif;}
+    ::-webkit-scrollbar{width:5px;} ::-webkit-scrollbar-track{background:#F1F5F9;} ::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:10px;}
+    .si:hover{background:rgba(255,255,255,.08)!important;}
+    .rh:hover{background:#F8FAFC!important;}
+    .btn{transition:all .15s ease;cursor:pointer;}
+    .btn:hover:not(:disabled){filter:brightness(.92);}
+    input,select,textarea{font-family:'Inter',system-ui,sans-serif;}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+    @keyframes slideIn{from{opacity:0;transform:translateX(30px)}to{opacity:1;transform:translateX(0)}}
+    @keyframes fadeYellow{0%{background:#FFFBEB}100%{background:#fff}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .new-row{animation:fadeYellow 4s ease forwards;}
+    .toast-in{animation:slideIn .3s ease;}
+    .spin{animation:spin .7s linear infinite;}
+    .drop-zone{border:2px dashed #CBD5E1;border-radius:10px;padding:1.5rem;text-align:center;cursor:pointer;transition:all .2s;}
+    .drop-zone:hover,.drop-zone.over{border-color:#3B82F6;background:#EFF6FF;}
+    input[type=file]{display:none;}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useMemo,useRef,useCallback} = React;
+
+const SUPABASE_URL = "https://jhyaiuvubbrtngvyoyhi.supabase.co";
+const SUPABASE_KEY = "sb_publishable_-AK2kMXWLWYqhA7V5GoW_w_tuFg-B1W";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const STATUSES = ["gözlənilir","təsdiqləndi","gəldi","ləğv edildi"];
+const SC = {
+  "gözlənilir":  {bg:"#FEF9C3",text:"#CA8A04",border:"#FDE047"},
+  "təsdiqləndi": {bg:"#DCFCE7",text:"#16A34A",border:"#86EFAC"},
+  "gəldi":       {bg:"#DBEAFE",text:"#2563EB",border:"#93C5FD"},
+  "ləğv edildi": {bg:"#FEE2E2",text:"#DC2626",border:"#FCA5A5"},
+};
+const SHAPES = ["round","rect","rect6","vip"];
+
+const Badge = ({status}) => {
+  const c = SC[status]||{bg:"#F1F5F9",text:"#64748B",border:"#CBD5E1"};
+  return <span style={{fontSize:"0.72rem",padding:"0.2rem 0.6rem",background:c.bg,color:c.text,border:`1px solid ${c.border}`,borderRadius:"20px",fontWeight:600,whiteSpace:"nowrap"}}>{status}</span>;
+};
+
+const Spinner = ({size=14}) => (
+  <div className="spin" style={{width:size,height:size,border:`2px solid #E2E8F0`,borderTop:`2px solid #3B82F6`,borderRadius:"50%",flexShrink:0}}/>
+);
+
+// ── Image upload helper ─────────────────────────────────────
+async function uploadImage(file, bucket="table-images") {
+  const ext  = file.name.split(".").pop();
+  const name = `${Date.now()}.${ext}`;
+  const {error} = await sb.storage.from(bucket).upload(name, file, {upsert:true});
+  if(error) return {url:null, error};
+  const {data} = sb.storage.from(bucket).getPublicUrl(name);
+  return {url: data.publicUrl, error:null};
+}
+
+function App() {
+  const [page,setPage]       = useState("dashboard");
+  const [rows,setRows]       = useState([]);
+  const [loading,setLoading] = useState(true);
+  const [newIds,setNewIds]   = useState(new Set());
+  const [toasts,setToasts]   = useState([]);
+  const [sel,setSel]         = useState(null);
+  const [sidebar,setSidebar] = useState(true);
+  const [updId,setUpdId]     = useState(null);
+
+  // Filters
+  const [fDate,setFDate]     = useState("");
+  const [fStatus,setFStatus] = useState("hamısı");
+  const [fTable,setFTable]   = useState("hamısı");
+  const [fRest,setFRest]     = useState("hamısı");
+  const [search,setSearch]   = useState("");
+
+  // Restaurants & tables from Supabase
+  const [restaurants,setRestaurants] = useState([]);
+  const [allTables,setAllTables]     = useState([]); // {id,restaurant_id,label,seats,zone,shape,img_url,x,y}
+
+  const today = new Date().toISOString().split("T")[0];
+
+  // ── Load data ──────────────────────────────────────────────
+  const loadRestaurants = async () => {
+    const {data} = await sb.from("restaurants").select("*").order("name");
+    setRestaurants(data||[]);
+  };
+  const loadTables = async () => {
+    const {data} = await sb.from("tables").select("*").order("label");
+    setAllTables(data||[]);
+  };
+
+  useEffect(()=>{
+    Promise.all([
+      sb.from("reservations").select("*").order("created_at",{ascending:false}).then(({data})=>setRows(data||[])),
+      loadRestaurants(),
+      loadTables(),
+    ]).then(()=>setLoading(false));
+
+    const ch = sb.channel("admin_rt")
+      .on("postgres_changes",{event:"INSERT",schema:"public",table:"reservations"},p=>{
+        const r=p.new;
+        setRows(prev=>[r,...prev]);
+        setNewIds(prev=>new Set([...prev,r.id]));
+        const tid=Date.now();
+        setToasts(prev=>[...prev,{id:tid,data:r}]);
+        setTimeout(()=>setToasts(prev=>prev.filter(t=>t.id!==tid)),7000);
+        setTimeout(()=>setNewIds(prev=>{const n=new Set(prev);n.delete(r.id);return n;}),5000);
+      })
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"reservations"},p=>{
+        setRows(prev=>prev.map(r=>r.id===p.new.id?p.new:r));
+        setSel(prev=>prev?.id===p.new.id?p.new:prev);
+      })
+      .subscribe();
+    return ()=>sb.removeChannel(ch);
+  },[]);
+
+  const updStatus = async (id,s) => {
+    setUpdId(id);
+    setRows(prev=>prev.map(r=>r.id===id?{...r,status:s}:r));
+    setSel(prev=>prev?.id===id?{...prev,status:s}:prev);
+    await sb.from("reservations").update({status:s}).eq("id",id);
+    setUpdId(null);
+  };
+
+  const allRestaurantNames = useMemo(()=>restaurants.map(r=>r.name),[restaurants]);
+  const todayRows   = rows.filter(r=>r.date===today);
+  const todayGuests = todayRows.filter(r=>r.status!=="ləğv edildi").reduce((s,r)=>s+r.guests,0);
+  const todayRev    = todayRows.reduce((s,r)=>s+(r.pre_order_total||0),0);
+  const waiting     = rows.filter(r=>r.status==="gözlənilir").length;
+
+  const filtered = useMemo(()=>rows.filter(r=>{
+    if(fDate&&r.date!==fDate) return false;
+    if(fStatus!=="hamısı"&&r.status!==fStatus) return false;
+    if(fTable!=="hamısı"&&r.table_label!==fTable) return false;
+    if(fRest!=="hamısı"&&r.restaurant_name!==fRest) return false;
+    if(search&&!r.name?.toLowerCase().includes(search.toLowerCase())&&!r.phone?.includes(search)) return false;
+    return true;
+  }),[rows,fDate,fStatus,fTable,fRest,search]);
+
+  const tblsForRest = useMemo(()=>{
+    if(fRest==="hamısı") return [];
+    const rid = restaurants.find(r=>r.name===fRest)?.id;
+    return allTables.filter(t=>t.restaurant_id===rid);
+  },[fRest,restaurants,allTables]);
+
+  const todayTblStatus = useMemo(()=>{
+    return tblsForRest.map(t=>{
+      const bk=todayRows.filter(r=>r.restaurant_name===fRest&&r.table_label===t.label&&r.status!=="ləğv edildi");
+      return {...t,bookings:bk,busy:bk.length>0};
+    });
+  },[tblsForRest,todayRows,fRest]);
+
+  const navItems=[
+    {id:"dashboard",icon:"📊",label:"Dashboard"},
+    {id:"reservations",icon:"📋",label:"Rezervasiyalar"},
+    {id:"tables",icon:"🪑",label:"Masalar"},
+    {id:"manage",icon:"⚙️",label:"İdarəetmə"},
+  ];
+
+  return(
+    <div style={{display:"flex",minHeight:"100vh"}}>
+
+      {/* TOASTS */}
+      <div style={{position:"fixed",top:"1rem",right:"1rem",zIndex:9999,display:"flex",flexDirection:"column",gap:"0.5rem",pointerEvents:"none"}}>
+        {toasts.map(t=>(
+          <div key={t.id} className="toast-in" style={{background:"#0F172A",color:"#fff",borderRadius:"14px",padding:"1rem 1.4rem",boxShadow:"0 8px 32px rgba(0,0,0,.3)",minWidth:"280px",borderLeft:"4px solid #22C55E",pointerEvents:"auto"}}>
+            <div style={{fontSize:"0.65rem",letterSpacing:"0.12em",textTransform:"uppercase",color:"#22C55E",marginBottom:"0.3rem",fontWeight:700}}>🔔 Yeni Rezervasiya!</div>
+            <div style={{fontWeight:700,fontSize:"0.95rem",marginBottom:"0.2rem"}}>{t.data.name}</div>
+            <div style={{fontSize:"0.78rem",color:"#94A3B8"}}>{t.data.restaurant_name} · Masa {t.data.table_label} · {t.data.date} · {t.data.time} · {t.data.guests} nəfər</div>
+          </div>
+        ))}
+      </div>
+
+      {/* SIDEBAR */}
+      <aside style={{width:sidebar?"220px":"60px",background:"#0F172A",display:"flex",flexDirection:"column",flexShrink:0,transition:"width .25s",overflow:"hidden"}}>
+        <div style={{padding:"1.2rem",borderBottom:"1px solid rgba(255,255,255,.06)",display:"flex",alignItems:"center",gap:"0.7rem",minHeight:"64px"}}>
+          <div style={{width:"32px",height:"32px",borderRadius:"8px",background:"#3B82F6",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem",flexShrink:0}}>🍽️</div>
+          {sidebar&&<div><div style={{fontWeight:800,fontSize:"0.95rem",color:"#fff",whiteSpace:"nowrap"}}>MasaAz</div><div style={{fontSize:"0.58rem",color:"#475569",textTransform:"uppercase",letterSpacing:"0.1em",whiteSpace:"nowrap"}}>Admin Panel</div></div>}
+        </div>
+        <div style={{padding:"0.6rem 0.8rem",borderBottom:"1px solid rgba(255,255,255,.04)",display:"flex",alignItems:"center",gap:"0.5rem"}}>
+          <div style={{width:"8px",height:"8px",borderRadius:"50%",background:"#22C55E",flexShrink:0,animation:"blink 2s ease-in-out infinite"}}/>
+          {sidebar&&<span style={{fontSize:"0.68rem",color:"#22C55E",fontWeight:600}}>Real-time aktiv</span>}
+        </div>
+        <nav style={{padding:"0.8rem 0.5rem",flex:1}}>
+          {navItems.map(item=>(
+            <div key={item.id} className="si" onClick={()=>setPage(item.id)}
+              style={{display:"flex",alignItems:"center",gap:"0.7rem",padding:"0.65rem 0.7rem",borderRadius:"8px",marginBottom:"0.2rem",cursor:"pointer",background:page===item.id?"rgba(59,130,246,.2)":"transparent",borderLeft:page===item.id?"3px solid #3B82F6":"3px solid transparent",position:"relative"}}>
+              <span style={{fontSize:"1.1rem",flexShrink:0}}>{item.icon}</span>
+              {sidebar&&<span style={{fontSize:"0.85rem",fontWeight:page===item.id?700:500,color:page===item.id?"#60A5FA":"#94A3B8",whiteSpace:"nowrap"}}>{item.label}</span>}
+              {item.id==="reservations"&&waiting>0&&<span style={{position:"absolute",right:"8px",top:"50%",transform:"translateY(-50%)",background:"#EF4444",color:"#fff",borderRadius:"20px",fontSize:"0.6rem",fontWeight:700,padding:"0.1rem 0.4rem"}}>{waiting}</span>}
+            </div>
+          ))}
+        </nav>
+        <div onClick={()=>setSidebar(p=>!p)} style={{padding:"1rem",borderTop:"1px solid rgba(255,255,255,.06)",display:"flex",justifyContent:sidebar?"flex-end":"center",cursor:"pointer"}}>
+          <span style={{color:"#475569"}}>{sidebar?"◀":"▶"}</span>
+        </div>
+      </aside>
+
+      {/* MAIN */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <header style={{background:"#fff",borderBottom:"1px solid #E2E8F0",height:"64px",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 1.5rem",flexShrink:0}}>
+          <div style={{fontWeight:700,fontSize:"1rem"}}>
+            {{dashboard:"Dashboard",reservations:"Rezervasiyalar",tables:"Masalar",manage:"İdarəetmə"}[page]}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
+            {waiting>0&&<div onClick={()=>{setFStatus("gözlənilir");setPage("reservations");}} style={{background:"#FEF9C3",border:"1px solid #FDE047",borderRadius:"20px",padding:"0.35rem 0.9rem",fontSize:"0.78rem",fontWeight:700,color:"#92400E",cursor:"pointer"}}>⚠️ {waiting} cavab verilməyən</div>}
+            <div style={{fontSize:"0.75rem",color:"#94A3B8"}}>{new Date().toLocaleDateString("az-AZ",{weekday:"long",day:"numeric",month:"long"})}</div>
+          </div>
+        </header>
+
+        <main style={{flex:1,overflow:"auto",padding:"1.5rem"}}>
+          {loading&&(
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"50vh",flexDirection:"column",gap:"1rem"}}>
+              <Spinner size={36}/>
+              <div style={{color:"#94A3B8",fontSize:"0.85rem"}}>Yüklənir...</div>
+            </div>
+          )}
+
+          {/* ── DASHBOARD ── */}
+          {!loading&&page==="dashboard"&&(
+            <DashboardPage todayRows={todayRows} todayGuests={todayGuests} todayRev={todayRev} waiting={waiting} rows={rows} newIds={newIds} setSel={setSel} setPage={setPage} restaurants={restaurants} allTables={allTables} fRest={fRest} setFRest={setFRest}/>
+          )}
+
+          {/* ── RƏZERVASİYALAR ── */}
+          {!loading&&page==="reservations"&&(
+            <ReservationsPage filtered={filtered} sel={sel} setSel={setSel} newIds={newIds} updId={updId} updStatus={updStatus}
+              fDate={fDate} setFDate={setFDate} fStatus={fStatus} setFStatus={setFStatus}
+              fTable={fTable} setFTable={setFTable} fRest={fRest} setFRest={setFRest}
+              search={search} setSearch={setSearch} allRestaurantNames={allRestaurantNames}
+              allTables={allTables} restaurants={restaurants}/>
+          )}
+
+          {/* ── MASALAR ── */}
+          {!loading&&page==="tables"&&(
+            <TablesPage todayTblStatus={todayTblStatus} fRest={fRest} setFRest={setFRest} allRestaurantNames={allRestaurantNames} updStatus={updStatus} updId={updId}/>
+          )}
+
+          {/* ── İDARƏETMƏ ── */}
+          {!loading&&page==="manage"&&(
+            <ManagePage restaurants={restaurants} allTables={allTables} reload={()=>{loadRestaurants();loadTables();}}/>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// DASHBOARD PAGE
+// ══════════════════════════════════════════════════════════════
+function DashboardPage({todayRows,todayGuests,todayRev,waiting,rows,newIds,setSel,setPage,restaurants,allTables,fRest,setFRest}) {
+  const today = new Date().toISOString().split("T")[0];
+  const allRestaurantNames = restaurants.map(r=>r.name);
+
+  const tblsForRest = useMemo(()=>{
+    if(fRest==="hamısı") return [];
+    const rid = restaurants.find(r=>r.name===fRest)?.id;
+    return allTables.filter(t=>t.restaurant_id===rid);
+  },[fRest,restaurants,allTables]);
+
+  const todayTblStatus = tblsForRest.map(t=>{
+    const bk=todayRows.filter(r=>r.restaurant_name===fRest&&r.table_label===t.label&&r.status!=="ləğv edildi");
+    return {...t,bookings:bk,busy:bk.length>0};
+  });
+
+  return(
+    <div>
+      <div style={{marginBottom:"1.5rem"}}>
+        <div style={{fontSize:"1.4rem",fontWeight:800,letterSpacing:"-0.02em",marginBottom:"0.2rem"}}>Dashboard</div>
+        <div style={{fontSize:"0.8rem",color:"#94A3B8"}}>Canlı məlumatlar · real-time</div>
+      </div>
+      <div style={{display:"flex",gap:"1rem",flexWrap:"wrap",marginBottom:"1.5rem"}}>
+        {[
+          {icon:"📅",label:"Bu gün rezerv",val:todayRows.length,sub:`${waiting} cavab gözləyir`},
+          {icon:"👥",label:"Bu gün qonaq",val:todayGuests,sub:"nəfər",color:"#2563EB"},
+          {icon:"⏳",label:"Cavab gözləyən",val:waiting,sub:"tezliklə cavabla",color:"#CA8A04"},
+          {icon:"💰",label:"Ön sifarişlər",val:`${todayRev}₼`,sub:"bu gün",color:"#16A34A"},
+          {icon:"📊",label:"Cəmi rezerv",val:rows.length,sub:"bütün vaxtlar",color:"#7C3AED"},
+        ].map(s=>(
+          <div key={s.label} style={{background:"#fff",borderRadius:"12px",padding:"1.2rem 1.4rem",border:"1px solid #E2E8F0",flex:1,minWidth:"140px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.8rem"}}>
+              <div style={{fontSize:"0.68rem",fontWeight:600,letterSpacing:"0.08em",textTransform:"uppercase",color:"#94A3B8"}}>{s.label}</div>
+              <div style={{fontSize:"1.3rem"}}>{s.icon}</div>
+            </div>
+            <div style={{fontSize:"2rem",fontWeight:800,letterSpacing:"-0.03em",color:s.color||"#0F172A",marginBottom:"0.2rem"}}>{s.val}</div>
+            <div style={{fontSize:"0.72rem",color:"#94A3B8"}}>{s.sub}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1.5rem"}}>
+        <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F1F5F9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,fontSize:"0.9rem"}}>Bu günün rezervasiyaları</div>
+            <span style={{fontSize:"0.7rem",background:"#EFF6FF",color:"#2563EB",padding:"0.2rem 0.6rem",borderRadius:"20px",fontWeight:600}}>{todayRows.length}</span>
+          </div>
+          <div style={{maxHeight:"360px",overflowY:"auto"}}>
+            {todayRows.length===0
+              ?<div style={{padding:"2rem",textAlign:"center",color:"#94A3B8",fontSize:"0.85rem"}}>Bu gün üçün rezervasiya yoxdur</div>
+              :todayRows.map(r=>(
+                <div key={r.id} className={`rh ${newIds.has(r.id)?"new-row":""}`}
+                  onClick={()=>{setSel(r);setPage("reservations");}}
+                  style={{padding:"0.85rem 1.2rem",borderBottom:"1px solid #F8FAFC",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:"0.88rem",marginBottom:"0.15rem"}}>{r.name}</div>
+                    <div style={{fontSize:"0.72rem",color:"#64748B"}}>⏰ {r.time} · Masa {r.table_label} · {r.guests} nf · {r.restaurant_name}</div>
+                  </div>
+                  <Badge status={r.status}/>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+        <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F1F5F9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,fontSize:"0.9rem"}}>Masa vəziyyəti (bugün)</div>
+            <select value={fRest} onChange={e=>setFRest(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"6px",padding:"0.2rem 0.5rem",fontSize:"0.72rem",outline:"none",background:"#fff"}}>
+              <option value="hamısı">Restoran seç...</option>
+              {allRestaurantNames.map(n=><option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div style={{padding:"1rem",display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.6rem"}}>
+            {fRest==="hamısı"
+              ?<div style={{gridColumn:"1/-1",textAlign:"center",color:"#94A3B8",fontSize:"0.8rem",padding:"1rem"}}>Restoran seçin</div>
+              :todayTblStatus.length===0
+                ?<div style={{gridColumn:"1/-1",textAlign:"center",color:"#94A3B8",fontSize:"0.8rem",padding:"1rem"}}>Bu restoran üçün masa tapılmadı</div>
+                :todayTblStatus.map(t=>(
+                  <div key={t.id} style={{padding:"0.7rem 0.9rem",borderRadius:"10px",background:t.busy?"#FEF2F2":"#F0FDF4",border:`1px solid ${t.busy?"#FECACA":"#86EFAC"}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.2rem"}}>
+                      <span style={{fontWeight:700,fontSize:"0.88rem",color:t.busy?"#DC2626":"#16A34A"}}>Masa {t.label}</span>
+                      <span style={{fontSize:"0.65rem",color:t.busy?"#DC2626":"#16A34A",fontWeight:600}}>{t.busy?"Dolu":"Boş"}</span>
+                    </div>
+                    <div style={{fontSize:"0.68rem",color:"#64748B"}}>{t.zone} · {t.seats} nf</div>
+                    {t.busy&&t.bookings[0]&&<div style={{fontSize:"0.65rem",color:"#EF4444",marginTop:"0.2rem"}}>{t.bookings[0].time} — {t.bookings[0].name}</div>}
+                  </div>
+                ))
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// RESERVATIONS PAGE
+// ══════════════════════════════════════════════════════════════
+function ReservationsPage({filtered,sel,setSel,newIds,updId,updStatus,fDate,setFDate,fStatus,setFStatus,fTable,setFTable,fRest,setFRest,search,setSearch,allRestaurantNames,allTables,restaurants}) {
+  const tblLabels = useMemo(()=>{
+    if(fRest==="hamısı") return [...new Set(allTables.map(t=>t.label))];
+    const rid=restaurants.find(r=>r.name===fRest)?.id;
+    return allTables.filter(t=>t.restaurant_id===rid).map(t=>t.label);
+  },[fRest,restaurants,allTables]);
+
+  return(
+    <div style={{display:"flex",gap:"1.5rem",height:"calc(100vh - 130px)"}}>
+      <div style={{flex:1,display:"flex",flexDirection:"column",background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
+        <div style={{padding:"1rem",borderBottom:"1px solid #F1F5F9",display:"flex",gap:"0.6rem",flexWrap:"wrap",alignItems:"center"}}>
+          <input placeholder="🔍 Ad, telefon..." value={search} onChange={e=>setSearch(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.45rem 0.8rem",fontSize:"0.8rem",outline:"none",flex:1,minWidth:"130px"}}/>
+          <input type="date" value={fDate} onChange={e=>setFDate(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.45rem 0.8rem",fontSize:"0.8rem",outline:"none",color:"#0F172A"}}/>
+          <select value={fRest} onChange={e=>{setFRest(e.target.value);setFTable("hamısı");}} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.45rem 0.8rem",fontSize:"0.8rem",outline:"none",background:"#fff"}}>
+            <option value="hamısı">Bütün restoranlar</option>
+            {allRestaurantNames.map(n=><option key={n} value={n}>{n}</option>)}
+          </select>
+          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.45rem 0.8rem",fontSize:"0.8rem",outline:"none",background:"#fff"}}>
+            {["hamısı",...STATUSES].map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fTable} onChange={e=>setFTable(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.45rem 0.8rem",fontSize:"0.8rem",outline:"none",background:"#fff"}}>
+            <option value="hamısı">Bütün masalar</option>
+            {tblLabels.map(l=><option key={l} value={l}>Masa {l}</option>)}
+          </select>
+          {(fDate||fStatus!=="hamısı"||fTable!=="hamısı"||fRest!=="hamısı"||search)&&(
+            <button className="btn" onClick={()=>{setFDate("");setFStatus("hamısı");setFTable("hamısı");setFRest("hamısı");setSearch("");}} style={{border:"1px solid #FECACA",background:"#FEF2F2",color:"#DC2626",borderRadius:"8px",padding:"0.45rem 0.8rem",fontSize:"0.75rem",fontWeight:600}}>Sıfırla ✕</button>
+          )}
+        </div>
+        <div style={{padding:"0.4rem 1rem",background:"#F8FAFC",borderBottom:"1px solid #F1F5F9",fontSize:"0.72rem",color:"#94A3B8"}}>{filtered.length} nəticə</div>
+        <div style={{overflowY:"auto",flex:1}}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:"0.82rem"}}>
+            <thead>
+              <tr style={{background:"#F8FAFC"}}>
+                {["Ad Soyad","Restoran","Tarix / Saat","Masa","Qonaq","Status","Ön sifariş"].map(h=>(
+                  <th key={h} style={{padding:"0.7rem 0.8rem",textAlign:"left",fontWeight:600,fontSize:"0.68rem",letterSpacing:"0.05em",textTransform:"uppercase",color:"#94A3B8",borderBottom:"1px solid #E2E8F0",whiteSpace:"nowrap"}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(r=>(
+                <tr key={r.id} className={`rh ${newIds.has(r.id)?"new-row":""}`} onClick={()=>setSel(r)}
+                  style={{borderBottom:"1px solid #F8FAFC",cursor:"pointer",background:sel?.id===r.id?"#EFF6FF":"#fff",transition:"background .3s"}}>
+                  <td style={{padding:"0.75rem 0.8rem"}}><div style={{fontWeight:600,fontSize:"0.85rem"}}>{r.name}</div><div style={{fontSize:"0.68rem",color:"#94A3B8"}}>{r.phone}</div></td>
+                  <td style={{padding:"0.75rem 0.8rem",fontSize:"0.75rem",color:"#64748B"}}>{r.restaurant_name}</td>
+                  <td style={{padding:"0.75rem 0.8rem",color:"#64748B"}}><div style={{fontWeight:500}}>{r.date}</div><div style={{fontSize:"0.72rem"}}>{r.time}</div></td>
+                  <td style={{padding:"0.75rem 0.8rem"}}><span style={{background:"#F1F5F9",padding:"0.18rem 0.5rem",borderRadius:"6px",fontWeight:600,fontSize:"0.75rem"}}>{r.table_label}</span></td>
+                  <td style={{padding:"0.75rem 0.8rem",color:"#64748B",textAlign:"center"}}>{r.guests}</td>
+                  <td style={{padding:"0.75rem 0.8rem"}}><div style={{display:"flex",alignItems:"center",gap:"0.4rem"}}><Badge status={r.status}/>{updId===r.id&&<Spinner/>}</div></td>
+                  <td style={{padding:"0.75rem 0.8rem",color:r.pre_order_total?"#16A34A":"#CBD5E1",fontWeight:r.pre_order_total?700:400}}>{r.pre_order_total?`${r.pre_order_total}₼`:"—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length===0&&<div style={{padding:"3rem",textAlign:"center",color:"#94A3B8"}}><div style={{fontSize:"2rem",marginBottom:"0.5rem"}}>🔍</div><div style={{fontWeight:600}}>Nəticə tapılmadı</div></div>}
+        </div>
+      </div>
+
+      {sel&&(
+        <div style={{width:"300px",background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",flexShrink:0,overflow:"hidden",display:"flex",flexDirection:"column"}}>
+          <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F1F5F9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{fontWeight:700,fontSize:"0.9rem"}}>Detallar</div>
+            <button onClick={()=>setSel(null)} style={{background:"none",border:"none",cursor:"pointer",fontSize:"1.1rem",color:"#94A3B8"}}>✕</button>
+          </div>
+          <div style={{padding:"1.2rem",flex:1,overflowY:"auto"}}>
+            <div style={{marginBottom:"1rem"}}>
+              <div style={{fontWeight:800,fontSize:"1.1rem",marginBottom:"0.2rem"}}>{sel.name}</div>
+              <div style={{fontSize:"0.75rem",color:"#94A3B8",marginBottom:"0.3rem"}}>{sel.restaurant_name}</div>
+              <div style={{fontSize:"0.72rem",color:"#64748B",marginBottom:"0.5rem"}}>{sel.phone}</div>
+              <div style={{display:"flex",alignItems:"center",gap:"0.5rem"}}><Badge status={sel.status}/>{updId===sel.id&&<Spinner/>}</div>
+            </div>
+            {[["📅 Tarix",sel.date],["⏰ Saat",sel.time],["🪑 Masa",`Masa ${sel.table_label}`],["👥 Qonaq",`${sel.guests} nəfər`],["💰 Ön sifariş",sel.pre_order_total?`${sel.pre_order_total}₼`:"Yoxdur"]].map(([k,v])=>(
+              <div key={k} style={{padding:"0.65rem 0",borderBottom:"1px solid #F8FAFC",display:"flex",justifyContent:"space-between"}}>
+                <span style={{fontSize:"0.75rem",color:"#94A3B8"}}>{k}</span>
+                <span style={{fontSize:"0.8rem",fontWeight:600}}>{v}</span>
+              </div>
+            ))}
+            {sel.pre_order_items?.length>0&&(
+              <div style={{marginTop:"0.8rem",background:"#F8FAFC",borderRadius:"8px",padding:"0.75rem"}}>
+                <div style={{fontSize:"0.62rem",fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.5rem"}}>Ön sifarişlər</div>
+                {sel.pre_order_items.map((item,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:"0.78rem",marginBottom:"0.2rem"}}>
+                    <span>{item.name} x{item.qty}</span><span style={{fontWeight:600}}>{item.price*item.qty}₼</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{marginTop:"1.2rem"}}>
+              <div style={{fontSize:"0.65rem",fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:"0.6rem"}}>Status dəyiş</div>
+              <div style={{display:"flex",flexDirection:"column",gap:"0.4rem"}}>
+                {STATUSES.map(s=>{
+                  const c=SC[s]; const active=sel.status===s; const busy=updId===sel.id;
+                  return(
+                    <button key={s} className="btn" disabled={busy} onClick={()=>!active&&updStatus(sel.id,s)}
+                      style={{padding:"0.55rem 0.8rem",borderRadius:"8px",border:`1px solid ${active?c.border:"#E2E8F0"}`,background:active?c.bg:"#fff",color:active?c.text:"#64748B",fontFamily:"inherit",fontSize:"0.78rem",fontWeight:active?700:500,textAlign:"left",cursor:active||busy?"default":"pointer",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span>{active?"✓ ":""}{s}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// TABLES PAGE
+// ══════════════════════════════════════════════════════════════
+function TablesPage({todayTblStatus,fRest,setFRest,allRestaurantNames,updStatus,updId}) {
+  return(
+    <div>
+      <div style={{marginBottom:"1.5rem",display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+        <div>
+          <div style={{fontSize:"1.4rem",fontWeight:800,letterSpacing:"-0.02em",marginBottom:"0.2rem"}}>Masalar</div>
+          <div style={{fontSize:"0.8rem",color:"#94A3B8"}}>Bugünkü masa vəziyyəti — real vaxt</div>
+        </div>
+        <select value={fRest} onChange={e=>setFRest(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.5rem 0.8rem",fontSize:"0.82rem",outline:"none",background:"#fff"}}>
+          <option value="hamısı">Restoran seç...</option>
+          {allRestaurantNames.map(n=><option key={n} value={n}>{n}</option>)}
+        </select>
+      </div>
+      {fRest==="hamısı"
+        ?<div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"3rem",textAlign:"center",color:"#94A3B8"}}>Yuxarıdan restoran seçin</div>
+        :todayTblStatus.length===0
+          ?<div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"3rem",textAlign:"center",color:"#94A3B8"}}>Bu restoran üçün masa tapılmadı. "İdarəetmə" bölməsindən əlavə edin.</div>
+          :<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:"1rem"}}>
+            {todayTblStatus.map(t=>(
+              <div key={t.id} style={{background:"#fff",borderRadius:"14px",border:`2px solid ${t.busy?"#FECACA":"#86EFAC"}`,overflow:"hidden"}}>
+                <div style={{padding:"1rem 1.2rem",background:t.busy?"#FEF2F2":"#F0FDF4",borderBottom:`1px solid ${t.busy?"#FECACA":"#86EFAC"}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:"1.1rem",color:t.busy?"#DC2626":"#16A34A"}}>Masa {t.label}</div>
+                    <div style={{fontSize:"0.72rem",color:"#64748B"}}>{t.zone} · {t.seats} nəfərlik</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"0.3rem"}}>
+                    <div style={{fontSize:"1.5rem"}}>{t.busy?"🔴":"🟢"}</div>
+                    {t.img_url&&<img src={t.img_url} alt="" style={{width:"40px",height:"30px",borderRadius:"5px",objectFit:"cover"}}/>}
+                  </div>
+                </div>
+                <div style={{padding:"1rem 1.2rem"}}>
+                  {t.bookings.length===0
+                    ?<div style={{color:"#94A3B8",fontSize:"0.8rem",textAlign:"center",padding:"0.5rem 0"}}>Bu gün boşdur</div>
+                    :t.bookings.map(r=>(
+                      <div key={r.id} style={{marginBottom:"0.6rem",padding:"0.65rem",background:"#F8FAFC",borderRadius:"8px",border:"1px solid #E2E8F0"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:"0.25rem"}}>
+                          <span style={{fontWeight:600,fontSize:"0.82rem"}}>{r.name}</span>
+                          <span style={{fontSize:"0.72rem",color:"#64748B"}}>⏰ {r.time}</span>
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"0.4rem"}}>
+                          <span style={{fontSize:"0.72rem",color:"#64748B"}}>{r.guests} nəfər</span>
+                          <Badge status={r.status}/>
+                        </div>
+                        {r.status==="gözlənilir"&&(
+                          <div style={{display:"flex",gap:"0.4rem"}}>
+                            <button className="btn" onClick={()=>updStatus(r.id,"təsdiqləndi")} disabled={updId===r.id} style={{flex:1,padding:"0.3rem",background:"#DCFCE7",border:"1px solid #86EFAC",color:"#16A34A",borderRadius:"6px",fontSize:"0.68rem",fontWeight:600,cursor:"pointer"}}>Təsdiqlə</button>
+                            <button className="btn" onClick={()=>updStatus(r.id,"ləğv edildi")} disabled={updId===r.id} style={{flex:1,padding:"0.3rem",background:"#FEE2E2",border:"1px solid #FCA5A5",color:"#DC2626",borderRadius:"6px",fontSize:"0.68rem",fontWeight:600,cursor:"pointer"}}>Ləğv et</button>
+                          </div>
+                        )}
+                        {r.status==="təsdiqləndi"&&(
+                          <button className="btn" onClick={()=>updStatus(r.id,"gəldi")} disabled={updId===r.id} style={{width:"100%",padding:"0.3rem",background:"#DBEAFE",border:"1px solid #93C5FD",color:"#2563EB",borderRadius:"6px",fontSize:"0.68rem",fontWeight:600,cursor:"pointer"}}>Gəldi ✓</button>
+                        )}
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            ))}
+          </div>
+      }
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MANAGE PAGE — Restoran + Masa idarəsi
+// ══════════════════════════════════════════════════════════════
+function ManagePage({restaurants,allTables,reload}) {
+  const [tab,setTab]           = useState("restaurants");
+  const [saving,setSaving]     = useState(false);
+  const [msg,setMsg]           = useState("");
+  const [editRest,setEditRest] = useState(null); // null = yeni, object = edit
+  const [editTable,setEditTable]= useState(null);
+  const [imgUploading,setImgUploading] = useState(false);
+
+  // Restoran form
+  const [rName,setRName]     = useState("");
+  const [rCuisine,setRCuisine] = useState("");
+  const [rLocation,setRLocation] = useState("");
+  const [rEmoji,setREmoji]   = useState("🍽️");
+  const [rAccent,setRAccent] = useState("#E63946");
+  const [rTags,setRTags]     = useState("");
+  const [rRating,setRRating] = useState("4.5");
+  const [rPrice,setRPrice]   = useState("₼₼");
+  const [rAvail,setRAvail]   = useState(true);
+
+  // Masa form
+  const [tRestId,setTRestId] = useState("");
+  const [tLabel,setTLabel]   = useState("");
+  const [tSeats,setTSeats]   = useState("4");
+  const [tZone,setTZone]     = useState("");
+  const [tShape,setTShape]   = useState("rect");
+  const [tX,setTX]           = useState("20");
+  const [tY,setTY]           = useState("20");
+  const [tImg,setTImg]       = useState("");
+  const imgRef               = useRef();
+
+  const showMsg = (m,ok=true) => { setMsg({text:m,ok}); setTimeout(()=>setMsg(""),3000); };
+
+  const fillRest = (r) => {
+    setEditRest(r);
+    setRName(r.name); setRCuisine(r.cuisine||""); setRLocation(r.location||"");
+    setREmoji(r.emoji||"🍽️"); setRAccent(r.accent||"#E63946");
+    setRTags((r.tags||[]).join(", ")); setRRating(String(r.rating||4.5));
+    setRPrice(r.price_range||"₼₼"); setRAvail(r.available!==false);
+  };
+  const clearRest = () => { setEditRest(null); setRName(""); setRCuisine(""); setRLocation(""); setREmoji("🍽️"); setRAccent("#E63946"); setRTags(""); setRRating("4.5"); setRPrice("₼₼"); setRAvail(true); };
+
+  const saveRest = async () => {
+    if(!rName.trim()){showMsg("Ad mütləqdir",false);return;}
+    setSaving(true);
+    const payload = {name:rName.trim(),cuisine:rCuisine,location:rLocation,emoji:rEmoji,accent:rAccent,tags:rTags.split(",").map(t=>t.trim()).filter(Boolean),rating:parseFloat(rRating)||4.5,price_range:rPrice,available:rAvail};
+    if(editRest) await sb.from("restaurants").update(payload).eq("id",editRest.id);
+    else await sb.from("restaurants").insert(payload);
+    setSaving(false); clearRest(); reload(); showMsg(editRest?"Yeniləndi ✓":"Əlavə edildi ✓");
+  };
+
+  const deleteRest = async (id) => {
+    if(!confirm("Bu restoranı silmək istəyirsiniz?")) return;
+    await sb.from("tables").delete().eq("restaurant_id",id);
+    await sb.from("restaurants").delete().eq("id",id);
+    reload(); showMsg("Silindi ✓");
+  };
+
+  const fillTable = (t) => {
+    setEditTable(t);
+    setTRestId(String(t.restaurant_id)); setTLabel(t.label); setTSeats(String(t.seats));
+    setTZone(t.zone||""); setTShape(t.shape||"rect"); setTX(String(t.x||20)); setTY(String(t.y||20)); setTImg(t.img_url||"");
+  };
+  const clearTable = () => { setEditTable(null); setTRestId(""); setTLabel(""); setTSeats("4"); setTZone(""); setTShape("rect"); setTX("20"); setTY("20"); setTImg(""); };
+
+  const handleImgUpload = async (file) => {
+    if(!file) return;
+    setImgUploading(true);
+    const {url,error} = await uploadImage(file);
+    setImgUploading(false);
+    if(error){showMsg("Şəkil yükləmə xətası: "+error.message,false);return;}
+    setTImg(url);
+  };
+
+  const saveTable = async () => {
+    if(!tRestId||!tLabel.trim()){showMsg("Restoran və label mütləqdir",false);return;}
+    setSaving(true);
+    const payload = {restaurant_id:parseInt(tRestId),label:tLabel.trim(),seats:parseInt(tSeats)||4,zone:tZone,shape:tShape,x:parseFloat(tX)||20,y:parseFloat(tY)||20,img_url:tImg||null};
+    if(editTable) await sb.from("tables").update(payload).eq("id",editTable.id);
+    else await sb.from("tables").insert(payload);
+    setSaving(false); clearTable(); reload(); showMsg(editTable?"Yeniləndi ✓":"Masa əlavə edildi ✓");
+  };
+
+  const deleteTable = async (id) => {
+    if(!confirm("Bu masanı silmək istəyirsiniz?")) return;
+    await sb.from("tables").delete().eq("id",id);
+    reload(); showMsg("Silindi ✓");
+  };
+
+  const inp = {border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.55rem 0.8rem",fontSize:"0.88rem",outline:"none",width:"100%",color:"#0F172A"};
+  const lbl = {fontSize:"0.68rem",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"#94A3B8",marginBottom:"0.3rem",display:"block"};
+
+  return(
+    <div>
+      <div style={{marginBottom:"1.5rem"}}>
+        <div style={{fontSize:"1.4rem",fontWeight:800,letterSpacing:"-0.02em",marginBottom:"0.2rem"}}>İdarəetmə</div>
+        <div style={{fontSize:"0.8rem",color:"#94A3B8"}}>Restoran və masa məlumatlarını idarə et</div>
+      </div>
+
+      {msg&&<div style={{padding:"0.75rem 1rem",borderRadius:"10px",marginBottom:"1rem",background:msg.ok?"#F0FDF4":"#FEF2F2",color:msg.ok?"#16A34A":"#DC2626",border:`1px solid ${msg.ok?"#86EFAC":"#FECACA"}`,fontWeight:600,fontSize:"0.85rem"}}>{msg.text}</div>}
+
+      {/* Tabs */}
+      <div style={{display:"flex",gap:"0.5rem",marginBottom:"1.5rem"}}>
+        {[{id:"restaurants",label:"🏛️ Restoranlar"},{id:"tables",label:"🪑 Masalar"}].map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"0.6rem 1.2rem",borderRadius:"8px",border:`1px solid ${tab===t.id?"#3B82F6":"#E2E8F0"}`,background:tab===t.id?"#EFF6FF":"#fff",color:tab===t.id?"#2563EB":"#64748B",fontFamily:"inherit",fontSize:"0.85rem",fontWeight:tab===t.id?700:500,cursor:"pointer"}}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── RESTORANLAR TAB ── */}
+      {tab==="restaurants"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1.5rem"}}>
+          {/* Form */}
+          <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"1.4rem"}}>
+            <div style={{fontWeight:700,fontSize:"0.95rem",marginBottom:"1.2rem"}}>{editRest?"Restoranı düzəlt":"Yeni restoran əlavə et"}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.8rem",marginBottom:"0.8rem"}}>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={lbl}>Restoran adı *</label>
+                <input style={inp} value={rName} onChange={e=>setRName(e.target.value)} placeholder="Nargiz"/>
+              </div>
+              <div>
+                <label style={lbl}>Mətbəx növü</label>
+                <input style={inp} value={rCuisine} onChange={e=>setRCuisine(e.target.value)} placeholder="Azərbaycan mətbəxi"/>
+              </div>
+              <div>
+                <label style={lbl}>Emoji</label>
+                <input style={inp} value={rEmoji} onChange={e=>setREmoji(e.target.value)} placeholder="🏛️"/>
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={lbl}>Ünvan</label>
+                <input style={inp} value={rLocation} onChange={e=>setRLocation(e.target.value)} placeholder="Nizami küçəsi, Bakı"/>
+              </div>
+              <div>
+                <label style={lbl}>Rəng (accent)</label>
+                <div style={{display:"flex",gap:"0.5rem",alignItems:"center"}}>
+                  <input type="color" value={rAccent} onChange={e=>setRAccent(e.target.value)} style={{width:"42px",height:"38px",border:"1px solid #E2E8F0",borderRadius:"8px",cursor:"pointer",padding:"2px"}}/>
+                  <input style={{...inp,flex:1}} value={rAccent} onChange={e=>setRAccent(e.target.value)}/>
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Qiymət diapazonu</label>
+                <select style={inp} value={rPrice} onChange={e=>setRPrice(e.target.value)}>
+                  {["₼","₼₼","₼₼₼","₼₼₼₼"].map(p=><option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Reytinq</label>
+                <input style={inp} type="number" min="1" max="5" step="0.1" value={rRating} onChange={e=>setRRating(e.target.value)}/>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:"0.5rem",paddingTop:"1.2rem"}}>
+                <input type="checkbox" id="ravail" checked={rAvail} onChange={e=>setRAvail(e.target.checked)} style={{width:"16px",height:"16px"}}/>
+                <label htmlFor="ravail" style={{fontSize:"0.85rem",color:"#0F172A",cursor:"pointer"}}>Aktiv (rezervasiya qəbul edir)</label>
+              </div>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={lbl}>Teqlər (vergüllə ayır)</label>
+                <input style={inp} value={rTags} onChange={e=>setRTags(e.target.value)} placeholder="VIP, Terrace, Canlı musiqi"/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:"0.6rem"}}>
+              <button className="btn" onClick={saveRest} disabled={saving} style={{background:"#0F172A",color:"#fff",border:"none",borderRadius:"8px",padding:"0.65rem 1.2rem",fontSize:"0.85rem",fontWeight:700,cursor:"pointer",flex:1}}>
+                {saving?"...":editRest?"Yadda saxla":"Əlavə et"}
+              </button>
+              {editRest&&<button className="btn" onClick={clearRest} style={{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.65rem 1rem",fontSize:"0.85rem",fontWeight:600,cursor:"pointer"}}>Ləğv et</button>}
+            </div>
+          </div>
+
+          {/* List */}
+          <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
+            <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F1F5F9",fontWeight:700,fontSize:"0.95rem"}}>Mövcud restoranlar ({restaurants.length})</div>
+            <div style={{maxHeight:"500px",overflowY:"auto"}}>
+              {restaurants.length===0&&<div style={{padding:"2rem",textAlign:"center",color:"#94A3B8"}}>Hələ restoran yoxdur</div>}
+              {restaurants.map(r=>(
+                <div key={r.id} style={{padding:"0.9rem 1.2rem",borderBottom:"1px solid #F8FAFC",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:"0.7rem"}}>
+                    <div style={{width:"36px",height:"36px",borderRadius:"8px",background:`${r.accent||"#E63946"}15`,border:`1px solid ${r.accent||"#E63946"}25`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem",flexShrink:0}}>{r.emoji||"🍽️"}</div>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:"0.88rem"}}>{r.name}</div>
+                      <div style={{fontSize:"0.7rem",color:"#94A3B8"}}>{r.cuisine} · {r.price_range} · {r.available?"Aktiv":"Deaktiv"}</div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:"0.4rem"}}>
+                    <button className="btn" onClick={()=>fillRest(r)} style={{background:"#EFF6FF",color:"#2563EB",border:"1px solid #BFDBFE",borderRadius:"6px",padding:"0.3rem 0.6rem",fontSize:"0.72rem",fontWeight:600,cursor:"pointer"}}>Düzəlt</button>
+                    <button className="btn" onClick={()=>deleteRest(r.id)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",borderRadius:"6px",padding:"0.3rem 0.6rem",fontSize:"0.72rem",fontWeight:600,cursor:"pointer"}}>Sil</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MASALAR TAB ── */}
+      {tab==="tables"&&(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"1.5rem"}}>
+          {/* Form */}
+          <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"1.4rem"}}>
+            <div style={{fontWeight:700,fontSize:"0.95rem",marginBottom:"1.2rem"}}>{editTable?"Masanı düzəlt":"Yeni masa əlavə et"}</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0.8rem",marginBottom:"0.8rem"}}>
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={lbl}>Restoran *</label>
+                <select style={inp} value={tRestId} onChange={e=>setTRestId(e.target.value)}>
+                  <option value="">Restoran seç...</option>
+                  {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Masa labeli *</label>
+                <input style={inp} value={tLabel} onChange={e=>setTLabel(e.target.value)} placeholder="A1"/>
+              </div>
+              <div>
+                <label style={lbl}>Oturacaq sayı</label>
+                <select style={inp} value={tSeats} onChange={e=>setTSeats(e.target.value)}>
+                  {[2,4,6,8,10,12].map(n=><option key={n} value={n}>{n} nəfər</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Zona</label>
+                <input style={inp} value={tZone} onChange={e=>setTZone(e.target.value)} placeholder="Terras"/>
+              </div>
+              <div>
+                <label style={lbl}>Forma</label>
+                <select style={inp} value={tShape} onChange={e=>setTShape(e.target.value)}>
+                  <option value="round">Yuvarlaq (2 nf)</option>
+                  <option value="rect">Düzbucaqlı (4 nf)</option>
+                  <option value="rect6">Uzun (6 nf)</option>
+                  <option value="vip">VIP (8 nf)</option>
+                </select>
+              </div>
+              <div>
+                <label style={lbl}>Mövqe X% (0-90)</label>
+                <input style={inp} type="number" min="0" max="90" value={tX} onChange={e=>setTX(e.target.value)}/>
+              </div>
+              <div>
+                <label style={lbl}>Mövqe Y% (0-85)</label>
+                <input style={inp} type="number" min="0" max="85" value={tY} onChange={e=>setTY(e.target.value)}/>
+              </div>
+
+              {/* Şəkil upload */}
+              <div style={{gridColumn:"1/-1"}}>
+                <label style={lbl}>Masa şəkli</label>
+                <div className={`drop-zone`} onClick={()=>imgRef.current?.click()}
+                  onDragOver={e=>{e.preventDefault();}} onDrop={e=>{e.preventDefault();handleImgUpload(e.dataTransfer.files[0]);}}>
+                  {imgUploading
+                    ?<div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"0.5rem",color:"#94A3B8"}}><Spinner/> Yüklənir...</div>
+                    :tImg
+                      ?<div style={{display:"flex",alignItems:"center",gap:"0.8rem"}}>
+                        <img src={tImg} alt="" style={{width:"60px",height:"45px",borderRadius:"6px",objectFit:"cover"}}/>
+                        <div style={{textAlign:"left"}}>
+                          <div style={{fontSize:"0.8rem",fontWeight:600,color:"#16A34A"}}>✓ Şəkil yükləndi</div>
+                          <div style={{fontSize:"0.7rem",color:"#94A3B8",cursor:"pointer"}} onClick={e=>{e.stopPropagation();setTImg("");}}>Sil</div>
+                        </div>
+                      </div>
+                      :<div>
+                        <div style={{fontSize:"1.5rem",marginBottom:"0.3rem"}}>📷</div>
+                        <div style={{fontSize:"0.82rem",color:"#64748B",fontWeight:500}}>Şəkil yüklə və ya sürüklə</div>
+                        <div style={{fontSize:"0.7rem",color:"#94A3B8"}}>JPG, PNG — maks 5MB</div>
+                      </div>
+                  }
+                </div>
+                <input ref={imgRef} type="file" accept="image/*" onChange={e=>handleImgUpload(e.target.files[0])}/>
+                {/* URL ilə də daxil etmək olar */}
+                <input style={{...inp,marginTop:"0.5rem",fontSize:"0.78rem"}} value={tImg} onChange={e=>setTImg(e.target.value)} placeholder="və ya şəkil URL-i yapışdır..."/>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:"0.6rem"}}>
+              <button className="btn" onClick={saveTable} disabled={saving||imgUploading} style={{background:"#0F172A",color:"#fff",border:"none",borderRadius:"8px",padding:"0.65rem 1.2rem",fontSize:"0.85rem",fontWeight:700,cursor:"pointer",flex:1}}>
+                {saving?"...":editTable?"Yadda saxla":"Masa əlavə et"}
+              </button>
+              {editTable&&<button className="btn" onClick={clearTable} style={{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:"8px",padding:"0.65rem 1rem",fontSize:"0.85rem",fontWeight:600,cursor:"pointer"}}>Ləğv et</button>}
+            </div>
+          </div>
+
+          {/* List */}
+          <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
+            <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F1F5F9",fontWeight:700,fontSize:"0.95rem"}}>Mövcud masalar ({allTables.length})</div>
+            <div style={{maxHeight:"580px",overflowY:"auto"}}>
+              {allTables.length===0&&<div style={{padding:"2rem",textAlign:"center",color:"#94A3B8"}}>Hələ masa yoxdur</div>}
+              {restaurants.map(rest=>{
+                const rTbls = allTables.filter(t=>t.restaurant_id===rest.id);
+                if(!rTbls.length) return null;
+                return(
+                  <div key={rest.id}>
+                    <div style={{padding:"0.5rem 1.2rem",background:"#F8FAFC",fontSize:"0.65rem",fontWeight:700,letterSpacing:"0.08em",textTransform:"uppercase",color:"#94A3B8"}}>{rest.name}</div>
+                    {rTbls.map(t=>(
+                      <div key={t.id} style={{padding:"0.75rem 1.2rem",borderBottom:"1px solid #F8FAFC",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"0.7rem"}}>
+                          {t.img_url&&<img src={t.img_url} alt="" style={{width:"42px",height:"32px",borderRadius:"6px",objectFit:"cover",flexShrink:0}}/>}
+                          <div>
+                            <div style={{fontWeight:600,fontSize:"0.85rem"}}>Masa {t.label}</div>
+                            <div style={{fontSize:"0.7rem",color:"#94A3B8"}}>{t.zone} · {t.seats} nf · {t.shape}</div>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",gap:"0.4rem"}}>
+                          <button className="btn" onClick={()=>fillTable(t)} style={{background:"#EFF6FF",color:"#2563EB",border:"1px solid #BFDBFE",borderRadius:"6px",padding:"0.3rem 0.6rem",fontSize:"0.72rem",fontWeight:600,cursor:"pointer"}}>Düzəlt</button>
+                          <button className="btn" onClick={()=>deleteTable(t.id)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",borderRadius:"6px",padding:"0.3rem 0.6rem",fontSize:"0.72rem",fontWeight:600,cursor:"pointer"}}>Sil</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
