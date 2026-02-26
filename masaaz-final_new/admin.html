@@ -370,13 +370,24 @@ function App(){
   const today=new Date().toISOString().split("T")[0];
 
   const loadRests=async()=>{
-    const q = sb.from("restaurants").select("*").order("name");
-    // Super admin hamısını görür, restoran admini yalnız özünkünü
-    if(admin && !admin.is_super && admin.restaurant_id){
-      q.eq("id", admin.restaurant_id);
+    const{data}=await sb.from("restaurants").select("*").order("name");
+    const all = data||[];
+    if(!admin || admin.is_super){
+      setRests(all);
+    } else if(admin.restaurant_id){
+      // ID ilə filter
+      setRests(all.filter(r=>r.id===admin.restaurant_id));
+    } else if(admin.display_name){
+      // ID yoxdursa, ad ilə cəhd et (display_name restoran adı ilə eyni ola bilər)
+      const byName = all.filter(r=>
+        r.name.toLowerCase()===admin.display_name.toLowerCase() ||
+        r.name.toLowerCase().includes(admin.display_name.toLowerCase()) ||
+        admin.display_name.toLowerCase().includes(r.name.toLowerCase())
+      );
+      setRests(byName.length>0 ? byName : all);
+    } else {
+      setRests(all);
     }
-    const{data}=await q;
-    setRests(data||[]);
   };
   const loadTbls =async()=>{const{data}=await sb.from("tables").select("*").order("label");setAllTbls(data||[]);};
 
@@ -498,6 +509,7 @@ function App(){
     {id:"reviews",icon:"⭐",label:"Rəylər"},
     {id:"qr",icon:"📱",label:"QR Kodlar"},
     {id:"scan",icon:"📷",label:"QR Oxut"},
+    {id:"menu",icon:"🍽️",label:"Menyu"},
     {id:"whatsapp",icon:"💬",label:"WhatsApp"},
   ];
 
@@ -536,7 +548,7 @@ function App(){
       </aside>
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <header style={{background:"#fff",borderBottom:"1px solid #E2E8F0",height:"64px",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 1.5rem",flexShrink:0}}>
-          <div style={{fontWeight:700,fontSize:"1rem"}}>{{dashboard:"Dashboard",analytics:"Analitika",reservations:"Rezervasiyalar",tables:"Masalar",reviews:"⭐ Rəylər",qr:"📱 QR Kodlar",scan:"📷 QR Oxut",whatsapp:"💬 WhatsApp Ayarları"}[page]}</div>
+          <div style={{fontWeight:700,fontSize:"1rem"}}>{{dashboard:"Dashboard",analytics:"Analitika",reservations:"Rezervasiyalar",tables:"Masalar",reviews:"⭐ Rəylər",qr:"📱 QR Kodlar",scan:"📷 QR Oxut",menu:"🍽️ Menyu",whatsapp:"💬 WhatsApp Ayarları"}[page]}</div>
           <div style={{display:"flex",alignItems:"center",gap:"1rem"}}>
             {waiting>0&&<div onClick={()=>{setFStatus("gözlənilir");setPage("reservations");}} style={{background:"#FEF9C3",border:"1px solid #FDE047",borderRadius:"20px",padding:".35rem .9rem",fontSize:".78rem",fontWeight:700,color:"#92400E",cursor:"pointer"}}>⚠️ {waiting} cavab verilməyən</div>}
             <div style={{display:"flex",alignItems:"center",gap:".6rem",background:"#F8FAFC",borderRadius:"10px",padding:".3rem .8rem .3rem .5rem",border:"1px solid #E2E8F0"}}>
@@ -560,6 +572,7 @@ function App(){
           {!loading&&page==="reservations"&&<ResPage filtered={filtered} sel={sel} setSel={setSel} newIds={newIds} updId={updId} updStatus={updStatus} fDate={fDate} setFDate={setFDate} fStatus={fStatus} setFStatus={setFStatus} fRest={fRest} setFRest={setFRest} search={search} setSearch={setSearch} restNames={restNames} isSuper={admin.is_super}/>}
           {!loading&&page==="tables"&&<TblsPage restaurants={restaurants} allTables={allTables} todayRows={todayRows} updStatus={updStatus} updId={updId} reloadTbls={loadTbls} isSuper={admin.is_super}/>}
           {!loading&&page==="reviews"&&<ReviewsPage restaurants={restaurants} isSuper={admin.is_super}/>}
+          {!loading&&page==="menu"&&<MenuPage restaurants={restaurants} admin={admin} reload={loadRests} sb={sb}/>}
           {!loading&&page==="qr"&&<QRPage restaurants={restaurants} allTables={allTables} isSuper={admin.is_super}/>}
           {page==="scan"&&<QRScanPage sb={sb}/>}
           {page==="whatsapp"&&<WASettingsPage sb={sb}/>}
@@ -1551,12 +1564,178 @@ function ReviewsPage({restaurants, isSuper}){
             }
           </div>
 
-          {/* SQL hint */}
-          <div style={{marginTop:"1rem",background:"#F8FAFC",borderRadius:"10px",padding:"1rem 1.2rem",border:"1px solid #E2E8F0"}}>
-            <div style={{fontSize:".72rem",fontWeight:700,color:"#94A3B8",marginBottom:".5rem"}}>📌 Rəy cədvəlini Supabase-də yaradın (bir dəfə):</div>
-            <pre style={{fontSize:".72rem",color:"#475569",fontFamily:"monospace",overflow:"auto"}}>{"CREATE TABLE IF NOT EXISTS reviews (\n  id serial primary key,\n  booking_code text,\n  customer_name text,\n  restaurant_name text,\n  stars integer check (stars between 1 and 5),\n  comment text,\n  created_at timestamptz default now()\n);\nALTER TABLE reviews ENABLE ROW LEVEL SECURITY;\nCREATE POLICY Public_insert ON reviews FOR INSERT WITH CHECK (true);\nCREATE POLICY Public_read ON reviews FOR SELECT USING (true);"}</pre>
-          </div>
+          
         </>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// 🍽️ MENYU SƏHİFƏSİ
+// ════════════════════════════════════════════════════════════
+function MenuPage({restaurants, admin, reload, sb}){
+  const isSuper = admin?.is_super;
+  const myRests = isSuper
+    ? restaurants
+    : admin?.restaurant_id
+      ? restaurants.filter(r => r.id === admin.restaurant_id)
+      : restaurants; // restaurant_id yoxdursa, loadRests artıq filter etmişdir
+
+  const [restId, setRestId] = useState(() => myRests.length === 1 ? String(myRests[0].id) : "");
+  const [items, setItems] = useState([]);
+  const [mName,setMN]=useState(""); const [mDesc,setMD]=useState(""); const [mPrice,setMP]=useState("");
+  const [mCat,setMC]=useState(""); const [mEmoji,setME]=useState("🍽️");
+  const [saving,setSaving]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const [filter,setFilter]=useState("all");
+  const [editItem,setEditItem]=useState(null);
+
+  const showMsg=(text,ok=true)=>{setMsg({text,ok});setTimeout(()=>setMsg(null),3000);};
+  const iS={width:"100%",padding:".55rem .8rem",borderRadius:"8px",border:"1px solid #E2E8F0",fontSize:".85rem",fontFamily:"inherit",boxSizing:"border-box",outline:"none",background:"#fff",color:"#0F172A"};
+  const lS={fontSize:".65rem",fontWeight:600,letterSpacing:".08em",textTransform:"uppercase",color:"#94A3B8",display:"block",marginBottom:".3rem"};
+
+  useEffect(()=>{
+    if(!restId){setItems([]);return;}
+    const r=myRests.find(x=>String(x.id)===restId);
+    setItems(Array.isArray(r?.menu_items)?r.menu_items:[]);
+    setFilter("all");
+  },[restId,myRests]);
+
+  useEffect(()=>{
+    if(!restId&&myRests.length===1) setRestId(String(myRests[0].id));
+  },[myRests]);
+
+  const cats=[...new Set(items.map(i=>i.cat||"Digər"))];
+  const clearForm=()=>{setMN("");setMD("");setMP("");setMC("");setME("🍽️");setEditItem(null);};
+
+  const save=async()=>{
+    if(!restId||!mName.trim()||!mPrice){showMsg("Ad və qiymət mütləqdir",false);return;}
+    setSaving(true);
+    const r=myRests.find(x=>String(x.id)===restId);
+    const cur=Array.isArray(r?.menu_items)?r.menu_items:[];
+    const updated=editItem
+      ?cur.map(i=>i.id===editItem.id?{...i,name:mName.trim(),desc:mDesc,price:parseFloat(mPrice)||0,cat:mCat||"Digər",emoji:mEmoji}:i)
+      :[...cur,{id:Date.now(),name:mName.trim(),desc:mDesc,price:parseFloat(mPrice)||0,cat:mCat||"Digər",emoji:mEmoji}];
+    const{error}=await sb.from("restaurants").update({menu_items:updated}).eq("id",restId);
+    setSaving(false);
+    if(error){showMsg("Xəta: "+error.message,false);return;}
+    reload();clearForm();showMsg(editItem?"Yeniləndi ✓":"Əlavə edildi ✓");
+  };
+
+  const startEdit=(item)=>{
+    setEditItem(item);setMN(item.name);setMD(item.desc||"");setMP(String(item.price));setMC(item.cat||"Digər");setME(item.emoji||"🍽️");
+    window.scrollTo({top:0,behavior:"smooth"});
+  };
+
+  const del=async(item)=>{
+    if(!confirm("Silmək istəyirsiniz?"))return;
+    const r=myRests.find(x=>String(x.id)===restId);
+    const updated=(r?.menu_items||[]).filter(i=>i.id!==item.id);
+    await sb.from("restaurants").update({menu_items:updated}).eq("id",restId);
+    reload();showMsg("Silindi ✓");
+  };
+
+  const filtered=filter==="all"?items:items.filter(i=>(i.cat||"Digər")===filter);
+  const curRest=myRests.find(r=>String(r.id)===restId);
+
+  return(
+    <div>
+      <div style={{marginBottom:"1.5rem"}}>
+        <div style={{fontSize:"1.4rem",fontWeight:800,letterSpacing:"-.02em",marginBottom:".2rem"}}>🍽️ Menyu İdarəsi</div>
+        <div style={{fontSize:".8rem",color:"#94A3B8"}}>Restoranın menyusunu əlavə et, düzəlt, sil</div>
+      </div>
+      {msg&&<div style={{padding:".75rem 1rem",borderRadius:"10px",marginBottom:"1rem",background:msg.ok?"#F0FDF4":"#FEF2F2",color:msg.ok?"#16A34A":"#DC2626",border:`1px solid ${msg.ok?"#86EFAC":"#FECACA"}`,fontWeight:600,fontSize:".85rem"}}>{msg.text}</div>}
+      {isSuper&&(
+        <div style={{marginBottom:"1.5rem",background:"#fff",borderRadius:"12px",border:"1px solid #E2E8F0",padding:"1rem"}}>
+          <label style={lS}>Restoran seçin</label>
+          <select style={iS} value={restId} onChange={e=>setRestId(e.target.value)}>
+            <option value="">— Seçin —</option>
+            {myRests.map(r=><option key={r.id} value={String(r.id)}>{r.emoji||"🍽️"} {r.name}</option>)}
+          </select>
+        </div>
+      )}
+      {!isSuper&&myRests.length===0&&(
+        <div style={{background:"#FEF9C3",border:"1px solid #FDE047",borderRadius:"12px",padding:"2rem",textAlign:"center",color:"#92400E"}}>
+          <div style={{fontSize:"2rem",marginBottom:".5rem"}}>🏛️</div>
+          <div style={{fontWeight:700}}>Restoranınız tapılmadı</div>
+          <div style={{fontSize:".8rem",marginTop:".3rem"}}>Admin hesabınıza restoran təyin edilməyib. Super admin ilə əlaqə saxlayın.</div>
+        </div>
+      )}
+      {restId&&(
+        <div style={{display:"grid",gridTemplateColumns:"360px 1fr",gap:"1.5rem",alignItems:"start"}}>
+          <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"1.4rem"}}>
+            <div style={{fontWeight:700,fontSize:".95rem",marginBottom:"1.2rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span>{editItem?"✏️ Düzəlt":"+ Yeni maddə"}</span>
+              {editItem&&<button onClick={clearForm} style={{background:"#F1F5F9",border:"none",borderRadius:"6px",padding:".3rem .7rem",fontSize:".75rem",fontWeight:600,cursor:"pointer",color:"#64748B"}}>✕ Ləğv</button>}
+            </div>
+            {curRest&&<div style={{marginBottom:"1rem",padding:".5rem .8rem",background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:"8px",color:"#2563EB",fontWeight:600,fontSize:".85rem"}}>{curRest.emoji||"🍽️"} {curRest.name}</div>}
+            <div style={{display:"flex",flexDirection:"column",gap:".8rem",marginBottom:"1rem"}}>
+              <div style={{display:"grid",gridTemplateColumns:"68px 1fr",gap:".5rem"}}>
+                <div><label style={lS}>Emoji</label><input style={{...iS,textAlign:"center",fontSize:"1.3rem",padding:".4rem"}} value={mEmoji} onChange={e=>setME(e.target.value)} maxLength={2}/></div>
+                <div><label style={lS}>Ad *</label><input style={iS} placeholder="Piti, Qutab..." value={mName} onChange={e=>setMN(e.target.value)}/></div>
+              </div>
+              <div><label style={lS}>Təsvir</label><input style={iS} placeholder="Qısa açıqlama (istəyə bağlı)" value={mDesc} onChange={e=>setMD(e.target.value)}/></div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:".5rem"}}>
+                <div><label style={lS}>Qiymət (₼) *</label><input style={iS} type="number" placeholder="0.00" value={mPrice} onChange={e=>setMP(e.target.value)} min="0" step="0.5"/></div>
+                <div><label style={lS}>Kateqoriya</label>
+                  <input style={iS} placeholder="Şorba, Əsas..." value={mCat} onChange={e=>setMC(e.target.value)} list="cats-mp"/>
+                  {cats.length>0&&<datalist id="cats-mp">{cats.map(cc=><option key={cc} value={cc}/>)}</datalist>}
+                </div>
+              </div>
+            </div>
+            <button onClick={save} disabled={saving||!mName.trim()||!mPrice}
+              style={{width:"100%",background:(!mName.trim()||!mPrice)?"#E2E8F0":"#0F172A",color:(!mName.trim()||!mPrice)?"#94A3B8":"#fff",border:"none",borderRadius:"8px",padding:".7rem",fontSize:".88rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+              {saving?"Saxlanır...":editItem?"💾 Yadda saxla":"+ Əlavə et"}
+            </button>
+          </div>
+          <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
+            <div style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F1F5F9"}}>
+              <div style={{fontWeight:700,fontSize:".9rem",marginBottom:cats.length>0?".6rem":0}}>
+                {curRest?.name||""} menyusu
+                <span style={{marginLeft:".5rem",fontSize:".75rem",color:"#94A3B8",fontWeight:400}}>({items.length} maddə)</span>
+              </div>
+              {cats.length>0&&(
+                <div style={{display:"flex",gap:".4rem",flexWrap:"wrap"}}>
+                  <button onClick={()=>setFilter("all")} style={{padding:".22rem .6rem",borderRadius:"20px",fontFamily:"inherit",border:"1px solid "+(filter==="all"?"#3B82F6":"#E2E8F0"),background:filter==="all"?"#EFF6FF":"#F8FAFC",color:filter==="all"?"#2563EB":"#64748B",fontSize:".72rem",fontWeight:600,cursor:"pointer"}}>Hamısı ({items.length})</button>
+                  {cats.map(cc=>(
+                    <button key={cc} onClick={()=>setFilter(cc)} style={{padding:".22rem .6rem",borderRadius:"20px",fontFamily:"inherit",border:"1px solid "+(filter===cc?"#3B82F6":"#E2E8F0"),background:filter===cc?"#EFF6FF":"#F8FAFC",color:filter===cc?"#2563EB":"#64748B",fontSize:".72rem",fontWeight:600,cursor:"pointer"}}>
+                      {cc} ({items.filter(i=>(i.cat||"Digər")===cc).length})
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {filtered.length===0
+              ?<div style={{padding:"3rem",textAlign:"center",color:"#94A3B8"}}>
+                <div style={{fontSize:"2rem",marginBottom:".5rem"}}>🍽️</div>
+                <div style={{fontWeight:600}}>{items.length===0?"Menyu boşdur":"Bu kateqoriyada maddə yoxdur"}</div>
+                <div style={{fontSize:".8rem",marginTop:".3rem"}}>Sol tərəfdən yeni maddə əlavə edin</div>
+               </div>
+              :<div>
+                {[...new Set(filtered.map(i=>i.cat||"Digər"))].map(cat=>(
+                  <div key={cat}>
+                    <div style={{padding:".4rem 1.2rem",background:"#F8FAFC",fontSize:".65rem",fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"#94A3B8",borderBottom:"1px solid #F1F5F9"}}>{cat}</div>
+                    {filtered.filter(i=>(i.cat||"Digər")===cat).map(item=>(
+                      <div key={item.id} style={{display:"flex",alignItems:"center",gap:"1rem",padding:".85rem 1.2rem",borderBottom:"1px solid #F8FAFC"}}>
+                        <div style={{fontSize:"1.6rem",flexShrink:0}}>{item.emoji||"🍽️"}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:600,fontSize:".88rem"}}>{item.name}</div>
+                          {item.desc&&<div style={{fontSize:".74rem",color:"#94A3B8",marginTop:".1rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.desc}</div>}
+                        </div>
+                        <div style={{fontWeight:700,fontSize:".92rem",whiteSpace:"nowrap",flexShrink:0}}>{Number(item.price).toFixed(2)} ₼</div>
+                        <div style={{display:"flex",gap:".3rem",flexShrink:0}}>
+                          <button onClick={()=>startEdit(item)} style={{background:"#EFF6FF",color:"#2563EB",border:"1px solid #BFDBFE",borderRadius:"6px",padding:".3rem .55rem",fontSize:".72rem",fontWeight:600,cursor:"pointer"}}>Düzəlt</button>
+                          <button onClick={()=>del(item)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",borderRadius:"6px",padding:".3rem .55rem",fontSize:".72rem",fontWeight:600,cursor:"pointer"}}>Sil</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+               </div>
+            }
+          </div>
+        </div>
       )}
     </div>
   );
