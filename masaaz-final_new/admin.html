@@ -371,21 +371,19 @@ function App(){
 
   const loadRests=async()=>{
     const{data}=await sb.from("restaurants").select("*").order("name");
-    const all = data||[];
-    if(!admin || admin.is_super){
+    const all=data||[];
+    if(!admin||admin.is_super){
       setRests(all);
-    } else if(admin.restaurant_id){
-      // ID ilə filter
+    }else if(admin.restaurant_id){
       setRests(all.filter(r=>r.id===admin.restaurant_id));
-    } else if(admin.display_name){
-      // ID yoxdursa, ad ilə cəhd et (display_name restoran adı ilə eyni ola bilər)
-      const byName = all.filter(r=>
-        r.name.toLowerCase()===admin.display_name.toLowerCase() ||
-        r.name.toLowerCase().includes(admin.display_name.toLowerCase()) ||
+    }else if(admin.display_name){
+      const byName=all.filter(r=>
+        r.name.toLowerCase()===admin.display_name.toLowerCase()||
+        r.name.toLowerCase().includes(admin.display_name.toLowerCase())||
         admin.display_name.toLowerCase().includes(r.name.toLowerCase())
       );
-      setRests(byName.length>0 ? byName : all);
-    } else {
+      setRests(byName.length>0?byName:all);
+    }else{
       setRests(all);
     }
   };
@@ -570,7 +568,7 @@ function App(){
           {!loading&&page==="dashboard"&&<DashPage todayRows={todayRows} todayGuests={todayGuests} todayRev={todayRev} waiting={waiting} rows={myRows} newIds={newIds} setSel={setSel} setPage={setPage} restaurants={restaurants} allTables={allTables} isSuper={admin.is_super}/>}
           {!loading&&page==="analytics"&&<AnalyticsPage rows={myRows} restaurants={restaurants} allTables={allTables} isSuper={admin.is_super}/>}
           {!loading&&page==="reservations"&&<ResPage filtered={filtered} sel={sel} setSel={setSel} newIds={newIds} updId={updId} updStatus={updStatus} fDate={fDate} setFDate={setFDate} fStatus={fStatus} setFStatus={setFStatus} fRest={fRest} setFRest={setFRest} search={search} setSearch={setSearch} restNames={restNames} isSuper={admin.is_super}/>}
-          {!loading&&page==="tables"&&<TblsPage restaurants={restaurants} allTables={allTables} todayRows={todayRows} updStatus={updStatus} updId={updId} reloadTbls={loadTbls} isSuper={admin.is_super}/>}
+          {!loading&&page==="tables"&&<TblsPage restaurants={restaurants} allTables={allTables} todayRows={todayRows} updStatus={updStatus} updId={updId} reloadTbls={loadTbls} isSuper={admin.is_super} admin={admin} reload={()=>{loadRests();loadTbls();}} sb={sb}/>}
           {!loading&&page==="reviews"&&<ReviewsPage restaurants={restaurants} isSuper={admin.is_super}/>}
           {!loading&&page==="menu"&&<MenuPage restaurants={restaurants} admin={admin} reload={loadRests} sb={sb}/>}
           {!loading&&page==="qr"&&<QRPage restaurants={restaurants} allTables={allTables} isSuper={admin.is_super}/>}
@@ -824,8 +822,72 @@ function ResPage({filtered,sel,setSel,newIds,updId,updStatus,fDate,setFDate,fSta
 // ════════════════════════════════════════════════════════════
 // MASALAR — Kanvas + Kart siyahısı
 // ════════════════════════════════════════════════════════════
-function TblsPage({restaurants,allTables,todayRows,updStatus,updId,reloadTbls,isSuper}){
+function TblsPage({restaurants,allTables,todayRows,updStatus,updId,reloadTbls,isSuper,admin,reload,sb}){
   const [selRest,setSelRest]=useState(()=>restaurants.length===1?restaurants[0].name:restaurants.length>0?restaurants[0].name:"");
+
+  // ── Masa əlavə etmə state-ləri ──
+  const myRests = isSuper ? restaurants : restaurants.filter(r=>r.id===admin?.restaurant_id || restaurants.length===1);
+  const [showAddTable,setShowAddTable]=useState(false);
+  const [editT,setEditT]=useState(null);
+  const [tSaving,setTSaving]=useState(false);
+  const [tMsg,setTMsg]=useState(null);
+  const [tRestId,setTRId]=useState(()=>restaurants.length===1?String(restaurants[0].id):"");
+  const [tLabel,setTLbl]=useState("");
+  const [tSeats,setTSeat]=useState("4");
+  const [tZone,setTZ]=useState("");
+  const [tShape,setTShape]=useState("rect");
+  const [tImg,setTImg]=useState("");
+  const [tImgUploading,setTImgUploading]=useState(false);
+  const fileRef2=useRef(null);
+
+  const showTMsg=(text,ok=true)=>{setTMsg({text,ok});setTimeout(()=>setTMsg(null),3500);};
+
+  const handleImgFile2=async(e)=>{
+    const file=e.target.files?.[0];if(!file)return;
+    setTImgUploading(true);
+    const{url}=await uploadImg(file);
+    if(url){setTImg(url);}else{
+      const reader=new FileReader();
+      reader.onload=ev=>setTImg(ev.target.result);
+      reader.readAsDataURL(file);
+    }
+    setTImgUploading(false);
+    if(fileRef2.current)fileRef2.current.value="";
+  };
+
+  const fillT2=(t)=>{setEditT(t);setTRId(String(t.restaurant_id));setTLbl(t.label);setTSeat(String(t.seats));setTZ(t.zone||"");setTShape(t.shape||"rect");setTImg(t.img_url||"");setShowAddTable(true);};
+  const clearT2=()=>{setEditT(null);setTRId(restaurants.length===1?String(restaurants[0].id):"");setTLbl("");setTSeat("4");setTZ("");setTShape("rect");setTImg("");};
+
+  const saveT2=async()=>{
+    if(!tRestId||!tLabel.trim()){showTMsg("Restoran və label mütləqdir",false);return;}
+    setTSaving(true);
+    try{
+      const payload={restaurant_id:parseInt(tRestId),label:tLabel.trim(),seats:parseInt(tSeats)||4,zone:tZone,shape:tShape,x:20,y:20,img_url:tImg||null};
+      if(editT){
+        const{error}=await sb.from("tables").update(payload).eq("id",editT.id);
+        if(error)throw error;
+        showTMsg("Yeniləndi ✓");
+      }else{
+        const{error}=await sb.from("tables").insert(payload);
+        if(error)throw error;
+        showTMsg("Masa əlavə edildi ✓");
+        clearT2();
+      }
+      reload&&reload();
+    }catch(e){showTMsg("Xəta: "+(e.message||"bilinmir"),false);}
+    setTSaving(false);
+  };
+
+  const delT2=async(id)=>{
+    if(!confirm("Bu masanı silmək istəyirsiniz?"))return;
+    await sb.from("tables").delete().eq("id",id);
+    reload&&reload();
+    showTMsg("Silindi ✓");
+  };
+
+  const iS2={width:"100%",padding:".5rem .75rem",borderRadius:"8px",border:"1px solid #E2E8F0",fontSize:".83rem",fontFamily:"inherit",outline:"none",background:"#fff",color:"#0F172A",boxSizing:"border-box"};
+  const lS2={fontSize:".62rem",fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"#94A3B8",display:"block",marginBottom:".25rem"};
+
   const restTbls=useMemo(()=>{
     if(!selRest)return[];
     const rid=restaurants.find(r=>r.name===selRest)?.id;
@@ -837,14 +899,98 @@ function TblsPage({restaurants,allTables,todayRows,updStatus,updId,reloadTbls,is
   });
   return(
     <div>
-      <div style={{marginBottom:"1.5rem",display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+      <div style={{marginBottom:"1.5rem",display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:"1rem"}}>
         <div><div style={{fontSize:"1.4rem",fontWeight:800,letterSpacing:"-.02em",marginBottom:".2rem"}}>Masalar</div><div style={{fontSize:".8rem",color:"#94A3B8"}}>Masa planı + bugünkü vəziyyət</div></div>
-        {isSuper&&<select value={selRest} onChange={e=>setSelRest(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:".5rem .8rem",fontSize:".82rem",outline:"none",background:"#fff"}}>
-          <option value="">Restoran seç...</option>
-          {restaurants.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
-        </select>}
-        {!isSuper&&restaurants.length===1&&<div style={{background:"#EFF6FF",color:"#2563EB",border:"1px solid #BFDBFE",borderRadius:"8px",padding:".5rem 1rem",fontSize:".82rem",fontWeight:600}}>{restaurants[0].name}</div>}
+        <div style={{display:"flex",gap:".7rem",alignItems:"center",flexWrap:"wrap"}}>
+          {isSuper&&<select value={selRest} onChange={e=>setSelRest(e.target.value)} style={{border:"1px solid #E2E8F0",borderRadius:"8px",padding:".5rem .8rem",fontSize:".82rem",outline:"none",background:"#fff"}}>
+            <option value="">Restoran seç...</option>
+            {restaurants.map(r=><option key={r.id} value={r.name}>{r.name}</option>)}
+          </select>}
+          {!isSuper&&restaurants.length===1&&<div style={{background:"#EFF6FF",color:"#2563EB",border:"1px solid #BFDBFE",borderRadius:"8px",padding:".5rem 1rem",fontSize:".82rem",fontWeight:600}}>{restaurants[0].name}</div>}
+          {sb&&<button onClick={()=>{clearT2();setShowAddTable(p=>!p);}} style={{background:showAddTable?"#F1F5F9":"#0F172A",color:showAddTable?"#64748B":"#fff",border:"none",borderRadius:"8px",padding:".5rem 1rem",fontSize:".82rem",fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:".4rem"}}>
+            {showAddTable?"✕ Bağla":"🪑 + Yeni Masa"}
+          </button>}
+        </div>
       </div>
+
+      {/* ── MASA ƏLAVƏ ETMƏ PANELİ ── */}
+      {showAddTable&&sb&&(
+        <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"1.4rem",marginBottom:"1.5rem"}}>
+          <div style={{fontWeight:700,fontSize:".95rem",marginBottom:"1.2rem",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span>{editT?"✏️ Masanı düzəlt":"🪑 Yeni masa əlavə et"}</span>
+            {editT&&<button onClick={clearT2} style={{background:"#F1F5F9",border:"none",borderRadius:"6px",padding:".3rem .7rem",fontSize:".75rem",fontWeight:600,cursor:"pointer",color:"#64748B"}}>✕ Ləğv</button>}
+          </div>
+          {tMsg&&<div style={{padding:".6rem .9rem",borderRadius:"8px",marginBottom:"1rem",background:tMsg.ok?"#F0FDF4":"#FEF2F2",color:tMsg.ok?"#16A34A":"#DC2626",border:`1px solid ${tMsg.ok?"#86EFAC":"#FECACA"}`,fontWeight:600,fontSize:".83rem"}}>{tMsg.text}</div>}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"1rem",marginBottom:"1rem"}}>
+            {restaurants.length>1&&<div style={{gridColumn:"1/-1"}}>
+              <label style={lS2}>Restoran *</label>
+              <select style={iS2} value={tRestId} onChange={e=>setTRId(e.target.value)}>
+                <option value="">Restoran seç...</option>
+                {restaurants.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>}
+            {restaurants.length===1&&<div style={{gridColumn:"1/-1",padding:".45rem .75rem",background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:"8px",color:"#2563EB",fontWeight:600,fontSize:".83rem"}}>{restaurants[0].emoji||"🍽️"} {restaurants[0].name}</div>}
+            <div>
+              <label style={lS2}>Label * (A1, B2...)</label>
+              <input style={iS2} value={tLabel} onChange={e=>setTLbl(e.target.value)} placeholder="A1"/>
+            </div>
+            <div>
+              <label style={lS2}>Oturacaq sayı</label>
+              <select style={iS2} value={tSeats} onChange={e=>setTSeat(e.target.value)}>
+                {[2,4,6,8,10,12].map(n=><option key={n} value={n}>{n} nəfər</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lS2}>Zona</label>
+              <input style={iS2} value={tZone} onChange={e=>setTZ(e.target.value)} placeholder="Terras, VIP..."/>
+            </div>
+            <div>
+              <label style={lS2}>Masa forması</label>
+              <select style={iS2} value={tShape} onChange={e=>setTShape(e.target.value)}>
+                <option value="round">🔵 Yuvarlaq (2nf)</option>
+                <option value="rect">⬜ Düzbucaqlı (4nf)</option>
+                <option value="rect6">➖ Uzun (6nf)</option>
+                <option value="vip">👑 VIP (8nf)</option>
+              </select>
+            </div>
+            <div style={{gridColumn:"1/-1"}}>
+              <label style={lS2}>Masa şəkli (istəyə bağlı)</label>
+              <input type="file" accept="image/*" ref={fileRef2} onChange={handleImgFile2} style={{display:"none"}}/>
+              {tImg
+                ?<div style={{position:"relative",borderRadius:"10px",overflow:"hidden",border:"2px solid #86EFAC"}}>
+                  <img src={tImg} alt="" style={{width:"100%",height:"130px",objectFit:"cover",display:"block"}}/>
+                  <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.45)",display:"flex",alignItems:"center",justifyContent:"center",gap:".6rem",opacity:0,transition:"opacity .2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.opacity=1} onMouseLeave={e=>e.currentTarget.style.opacity=0}>
+                    <button onClick={()=>fileRef2.current?.click()} style={{background:"#fff",border:"none",borderRadius:"8px",padding:".4rem .9rem",fontSize:".78rem",fontWeight:700,cursor:"pointer"}}>🔄 Dəyiş</button>
+                    <button onClick={()=>setTImg("")} style={{background:"#EF4444",border:"none",borderRadius:"8px",padding:".4rem .9rem",fontSize:".78rem",fontWeight:700,cursor:"pointer",color:"#fff"}}>🗑 Sil</button>
+                  </div>
+                  <div style={{position:"absolute",top:"8px",right:"8px",background:"#22C55E",borderRadius:"20px",padding:".2rem .6rem",fontSize:".6rem",color:"#fff",fontWeight:700}}>✓ Şəkil var</div>
+                </div>
+                :<div onClick={()=>fileRef2.current?.click()}
+                  style={{border:"2px dashed #CBD5E1",borderRadius:"10px",padding:"1.5rem",textAlign:"center",cursor:"pointer",background:"#F8FAFC",transition:"all .2s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor="#3B82F6";e.currentTarget.style.background="#EFF6FF";}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor="#CBD5E1";e.currentTarget.style.background="#F8FAFC";}}>
+                  {tImgUploading
+                    ?<div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:".5rem",color:"#3B82F6",fontSize:".83rem",fontWeight:600}}><Spin s={16}/> Yüklənir...</div>
+                    :<div>
+                      <div style={{fontSize:"1.8rem",marginBottom:".3rem"}}>📷</div>
+                      <div style={{fontSize:".8rem",fontWeight:600,color:"#475569"}}>Şəkil seçmək üçün klikləyin</div>
+                      <div style={{fontSize:".68rem",color:"#94A3B8",marginTop:".2rem"}}>JPG, PNG, WEBP · maks 5MB</div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+          <div style={{display:"flex",gap:".6rem"}}>
+            <button onClick={saveT2} disabled={tSaving||!tLabel.trim()||!tRestId}
+              style={{flex:1,background:(!tLabel.trim()||!tRestId)?"#E2E8F0":"#0F172A",color:(!tLabel.trim()||!tRestId)?"#94A3B8":"#fff",border:"none",borderRadius:"8px",padding:".65rem 1rem",fontSize:".88rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:".5rem"}}>
+              {tSaving?<><Spin s={14}/>Saxlanır...</>:editT?"💾 Yadda saxla":"✅ Masa əlavə et"}
+            </button>
+            {editT&&<button onClick={clearT2} style={{background:"#F1F5F9",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:"8px",padding:".65rem 1rem",fontSize:".88rem",fontWeight:600,cursor:"pointer"}}>Ləğv et</button>}
+          </div>
+        </div>
+      )}
       {!selRest
         ?<div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",padding:"3rem",textAlign:"center",color:"#94A3B8"}}>Yuxarıdan restoran seçin</div>
         :<div>
@@ -860,7 +1006,13 @@ function TblsPage({restaurants,allTables,todayRows,updStatus,updId,reloadTbls,is
                   {t.img_url&&<img src={t.img_url} alt={t.label} style={{width:"100%",height:"120px",objectFit:"cover"}}/>}
                   <div style={{padding:"1rem 1.2rem",background:t.busy?"#FEF2F2":"#F0FDF4",borderBottom:`1px solid ${t.busy?"#FECACA":"#86EFAC"}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <div><div style={{fontWeight:800,fontSize:"1.1rem",color:t.busy?"#DC2626":"#16A34A"}}>Masa {t.label}</div><div style={{fontSize:".72rem",color:"#64748B"}}>{t.zone} · {t.seats} nəfərlik</div></div>
-                    <div style={{fontSize:"1.6rem"}}>{t.busy?"🔴":"🟢"}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:".4rem"}}>
+                      <div style={{fontSize:"1.4rem"}}>{t.busy?"🔴":"🟢"}</div>
+                      {sb&&<>
+                        <button onClick={()=>fillT2(t)} style={{background:"#EFF6FF",color:"#2563EB",border:"1px solid #BFDBFE",borderRadius:"6px",padding:".25rem .5rem",fontSize:".65rem",fontWeight:700,cursor:"pointer"}}>✏️</button>
+                        <button onClick={()=>delT2(t.id)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",borderRadius:"6px",padding:".25rem .5rem",fontSize:".65rem",fontWeight:700,cursor:"pointer"}}>🗑</button>
+                      </>}
+                    </div>
                   </div>
                   <div style={{padding:"1rem 1.2rem"}}>
                     {t.bookings.length===0
@@ -1571,6 +1723,7 @@ function ReviewsPage({restaurants, isSuper}){
   );
 }
 
+
 // ════════════════════════════════════════════════════════════
 // 🍽️ MENYU SƏHİFƏSİ
 // ════════════════════════════════════════════════════════════
@@ -1579,11 +1732,11 @@ function MenuPage({restaurants, admin, reload, sb}){
   const myRests = isSuper
     ? restaurants
     : admin?.restaurant_id
-      ? restaurants.filter(r => r.id === admin.restaurant_id)
-      : restaurants; // restaurant_id yoxdursa, loadRests artıq filter etmişdir
+      ? restaurants.filter(r=>r.id===admin.restaurant_id)
+      : restaurants;
 
-  const [restId, setRestId] = useState(() => myRests.length === 1 ? String(myRests[0].id) : "");
-  const [items, setItems] = useState([]);
+  const [restId,setRestId]=useState(()=>myRests.length===1?String(myRests[0].id):"");
+  const [items,setItems]=useState([]);
   const [mName,setMN]=useState(""); const [mDesc,setMD]=useState(""); const [mPrice,setMP]=useState("");
   const [mCat,setMC]=useState(""); const [mEmoji,setME]=useState("🍽️");
   const [saving,setSaving]=useState(false);
@@ -1603,7 +1756,7 @@ function MenuPage({restaurants, admin, reload, sb}){
   },[restId,myRests]);
 
   useEffect(()=>{
-    if(!restId&&myRests.length===1) setRestId(String(myRests[0].id));
+    if(!restId&&myRests.length===1)setRestId(String(myRests[0].id));
   },[myRests]);
 
   const cats=[...new Set(items.map(i=>i.cat||"Digər"))];
@@ -1659,7 +1812,7 @@ function MenuPage({restaurants, admin, reload, sb}){
         <div style={{background:"#FEF9C3",border:"1px solid #FDE047",borderRadius:"12px",padding:"2rem",textAlign:"center",color:"#92400E"}}>
           <div style={{fontSize:"2rem",marginBottom:".5rem"}}>🏛️</div>
           <div style={{fontWeight:700}}>Restoranınız tapılmadı</div>
-          <div style={{fontSize:".8rem",marginTop:".3rem"}}>Admin hesabınıza restoran təyin edilməyib. Super admin ilə əlaqə saxlayın.</div>
+          <div style={{fontSize:".8rem",marginTop:".3rem"}}>Super admin ilə əlaqə saxlayın.</div>
         </div>
       )}
       {restId&&(
@@ -1675,7 +1828,7 @@ function MenuPage({restaurants, admin, reload, sb}){
                 <div><label style={lS}>Emoji</label><input style={{...iS,textAlign:"center",fontSize:"1.3rem",padding:".4rem"}} value={mEmoji} onChange={e=>setME(e.target.value)} maxLength={2}/></div>
                 <div><label style={lS}>Ad *</label><input style={iS} placeholder="Piti, Qutab..." value={mName} onChange={e=>setMN(e.target.value)}/></div>
               </div>
-              <div><label style={lS}>Təsvir</label><input style={iS} placeholder="Qısa açıqlama (istəyə bağlı)" value={mDesc} onChange={e=>setMD(e.target.value)}/></div>
+              <div><label style={lS}>Təsvir</label><input style={iS} placeholder="Qısa açıqlama" value={mDesc} onChange={e=>setMD(e.target.value)}/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:".5rem"}}>
                 <div><label style={lS}>Qiymət (₼) *</label><input style={iS} type="number" placeholder="0.00" value={mPrice} onChange={e=>setMP(e.target.value)} min="0" step="0.5"/></div>
                 <div><label style={lS}>Kateqoriya</label>
