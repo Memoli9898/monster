@@ -2,22 +2,64 @@
   command = "npm run build"
   publish = "dist"
 
-[[redirects]]
-  from = "/r/*"
-  to = "/index.html"
-  status = 200
-
+# ── Statik panel faylları ──────────────────────────────────────
 [[redirects]]
   from = "/admin.html"
-  to = "/admin.html"
+  to   = "/admin.html"
   status = 200
 
 [[redirects]]
   from = "/owner.html"
-  to = "/owner.html"
+  to   = "/owner.html"
+  status = 200
+
+# ── /admin → admin.html ───────────────────────────────────────
+[[redirects]]
+  from = "/admin"
+  to   = "/admin.html"
   status = 200
 
 [[redirects]]
+  from = "/admin/*"
+  to   = "/admin.html"
+  status = 200
+
+# ── /owner → owner.html ──────────────────────────────────────
+[[redirects]]
+  from = "/owner"
+  to   = "/owner.html"
+  status = 200
+
+[[redirects]]
+  from = "/owner/*"
+  to   = "/owner.html"
+  status = 200
+
+# ── Müştəri rezervasiya axını ────────────────────────────────
+#   /                    → Ana səhifə
+#   /r/:slug             → Restoran (tarix/saat)
+#   /r/:slug/table       → Masa seçimi
+#   /r/:slug/menu        → Menyu
+#   /r/:slug/success     → Uğurlu rezervasiya
+#   /cancel              → Ləğv
+#   /review              → Rəy forması
+[[redirects]]
+  from = "/r/*"
+  to   = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/cancel"
+  to   = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/review"
+  to   = "/index.html"
+  status = 200
+
+# ── Catch-all ─────────────────────────────────────────────────
+[[redirects]]
   from = "/*"
-  to = "/index.html"
+  to   = "/index.html"
   status = 200

@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment, Component } from "react";
+import { useState, useEffect, useCallback, useRef, Fragment, Component } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 
@@ -103,6 +103,82 @@ function TableSVG({ shape, label, seats, isBooked, isSelected, isHovered }) {
       <text x="48" y="39" textAnchor="middle" fill={lc} fontSize="9.5" fontWeight="700" fontFamily="system-ui">{label}</text>
       <text x="48" y="51" textAnchor="middle" fill={sc} fontSize="7" fontFamily="system-ui">{seats} nf</text>
     </svg>
+  );
+}
+
+
+// ════════════════════════════════════════════════════════════
+// 🚫 LƏĞV SƏHİFƏSİ  →  /cancel
+// ════════════════════════════════════════════════════════════
+function CancelPage({ navigate }) {
+  const [phone, setPhone]   = useState("");
+  const [list,  setList]    = useState(null);
+  const [loading, setLoad]  = useState(false);
+  const [msg, setMsg]       = useState("");
+
+  const search = async () => {
+    if (!phone.trim()) return;
+    setLoad(true); setMsg(""); setList(null);
+    const { data, error } = await supabase
+      .from("reservations").select("*")
+      .eq("phone", phone.trim())
+      .neq("status", "ləğv edildi")
+      .order("date", { ascending: true });
+    setLoad(false);
+    if (error || !data || data.length === 0)
+      setMsg("Bu nömrə ilə aktiv rezervasiya tapılmadı.");
+    else setList(data);
+  };
+
+  const cancel = async (id) => {
+    await supabase.from("reservations").update({ status: "ləğv edildi" }).eq("id", id);
+    setList(p => p ? p.filter(r => r.id !== id) : []);
+    setMsg("Rezervasiya ləğv edildi ✓");
+  };
+
+  const inp = { width:"100%", border:"none", background:"transparent", fontSize:".95rem", color:"#0F172A", outline:"none" };
+  const box = { background:"#fff", border:"1px solid #E2E8F0", borderRadius:"10px", padding:".9rem 1rem", boxShadow:"0 1px 3px rgba(0,0,0,.04)" };
+  const lbl = { fontSize:".65rem", fontWeight:600, letterSpacing:".1em", textTransform:"uppercase", color:"#94A3B8", marginBottom:".4rem", display:"block" };
+
+  return (
+    <div style={{ fontFamily:"'Inter',system-ui,sans-serif", background:"#F8FAFC", minHeight:"100vh" }}>
+      <header style={{ background:"#fff", borderBottom:"1px solid #E2E8F0", height:"60px", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 2rem", boxShadow:"0 1px 3px rgba(0,0,0,.04)" }}>
+        <div onClick={() => navigate("/")} style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:".6rem" }}>
+          <div style={{ width:"32px", height:"32px", borderRadius:"8px", background:"#0F172A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem" }}>🍽️</div>
+          <div style={{ fontWeight:800, fontSize:"1.05rem" }}>MasaAz</div>
+        </div>
+        <button onClick={() => navigate("/")} style={{ background:"none", border:"1px solid #E2E8F0", color:"#64748B", padding:".4rem .9rem", borderRadius:"8px", fontSize:".78rem", fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>← Ana səhifə</button>
+      </header>
+      <div style={{ maxWidth:"560px", margin:"0 auto", padding:"2rem" }}>
+        <div style={{ fontWeight:800, fontSize:"1.5rem", letterSpacing:"-.02em", marginBottom:".3rem" }}>Rezervasiyanı ləğv et</div>
+        <div style={{ fontSize:".8rem", color:"#94A3B8", marginBottom:"1.8rem" }}>Telefon nömrənizi daxil edin</div>
+        <div style={{ display:"flex", gap:".7rem", marginBottom:"1.2rem" }}>
+          <div style={{ ...box, flex:1 }}>
+            <label style={lbl}>Telefon nömrəsi</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} onKeyDown={e=>e.key==="Enter"&&search()} placeholder="+994 50 000 00 00" style={inp}/>
+          </div>
+          <button onClick={search} disabled={loading} style={{ background:"#0F172A", color:"#fff", border:"none", borderRadius:"10px", padding:"0 1.4rem", fontSize:".88rem", fontWeight:700, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap" }}>
+            {loading ? "⏳" : "Axtar"}
+          </button>
+        </div>
+        {msg && <div style={{ background:msg.includes("✓")?"#F0FDF4":"#FEF2F2", border:`1px solid ${msg.includes("✓")?"#86EFAC":"#FECACA"}`, borderRadius:"10px", padding:".85rem 1rem", marginBottom:"1rem", color:msg.includes("✓")?"#16A34A":"#DC2626", fontWeight:600, fontSize:".88rem" }}>{msg}</div>}
+        {list && list.length > 0 && (
+          <div style={{ background:"#fff", borderRadius:"14px", border:"1px solid #E2E8F0", overflow:"hidden" }}>
+            <div style={{ padding:".9rem 1.2rem", borderBottom:"1px solid #F1F5F9", fontWeight:700, fontSize:".9rem" }}>Aktiv rezervasiyalar ({list.length})</div>
+            {list.map(r => (
+              <div key={r.id} style={{ padding:"1rem 1.2rem", borderBottom:"1px solid #F8FAFC", display:"flex", justifyContent:"space-between", alignItems:"center", gap:"1rem" }}>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:".9rem", marginBottom:".2rem" }}>{r.restaurant_name}</div>
+                  <div style={{ fontSize:".75rem", color:"#64748B" }}>📅 {r.date} · ⏰ {r.time} · 🪑 {r.table_label} · 👥 {r.guests} nf</div>
+                  {r.booking_code && <div style={{ fontSize:".68rem", color:"#3B82F6", marginTop:".1rem" }}>Kod: #{r.booking_code}</div>}
+                </div>
+                <button onClick={() => cancel(r.id)} style={{ background:"#FEF2F2", color:"#DC2626", border:"1px solid #FECACA", borderRadius:"8px", padding:".5rem .9rem", fontSize:".78rem", fontWeight:700, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", flexShrink:0 }}>Ləğv et</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -832,23 +908,233 @@ function AdminUsers({ restaurants }) {
   );
 }
 
+
+// ════════════════════════════════════════════════════════════
+// 🔀 URL ROUTER — Hər step özünəməxsus endpoint-ə malikdir
+// ════════════════════════════════════════════════════════════
+//
+//  /                          → Ana səhifə (restoranlar siyahısı)
+//  /r/:restSlug               → Restoran seçildi → tarix/saat
+//  /r/:restSlug/table         → Masa seçimi
+//  /r/:restSlug/menu          → Menyu / ön sifariş
+//  /r/:restSlug/success       → Uğurlu rezervasiya
+//  /cancel                    → Rezervasiya ləğvi
+//  /review                    → Rəy forması  (?code=...)
+//  /admin                     → Admin paneli  (admin.html-ə yönləndirir)
+//  /owner                     → Owner paneli  (owner.html-ə yönləndirir)
+//
+function useRouter() {
+  const [path, setPath] = useState(() => window.location.pathname);
+  const [search, setSearch] = useState(() => window.location.search);
+
+  useEffect(() => {
+    const onPop = () => {
+      setPath(window.location.pathname);
+      setSearch(window.location.search);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const navigate = useCallback((to, { replace = false } = {}) => {
+    if (replace) {
+      window.history.replaceState(null, "", to);
+    } else {
+      window.history.pushState(null, "", to);
+    }
+    setPath(window.location.pathname);
+    setSearch(window.location.search);
+    window.scrollTo(0, 0);
+  }, []);
+
+  return { path, search, navigate };
+}
+
+// Slug köməkçisi
+function toSlug(name) {
+  return encodeURIComponent(name.trim());
+}
+function fromSlug(slug) {
+  return decodeURIComponent(slug);
+}
+
 // ─── ROUTER ──────────────────────────────────────────────────
 export default function App() {
-  const path = window.location.pathname;
-  if (path === "/review") return <ReviewPage />;
-  if (path === "/admin")  return <AdminPanel />;
-  // /r/restoran-adi — birbaşa restoran linki
-  if (path.startsWith("/r/")) {
-    const slug = decodeURIComponent(path.slice(3));
-    return <MainApp directSlug={slug} />;
+  const { path, search, navigate } = useRouter();
+
+  // /admin və /owner → statik HTML fayllarına yönləndir
+  if (path === "/admin" || path.startsWith("/admin/")) {
+    window.location.replace("/admin.html");
+    return null;
   }
-  return <MainApp />;
+  if (path === "/owner" || path.startsWith("/owner/")) {
+    window.location.replace("/owner.html");
+    return null;
+  }
+
+  // /review → Rəy forması
+  if (path === "/review") return <ReviewPage />;
+
+  // /cancel → Ləğv səhifəsi
+  if (path === "/cancel") return <CancelPage navigate={navigate} />;
+
+  // /r/:slug[/step] → Rezervasiya axını
+  if (path.startsWith("/r/")) {
+    const parts = path.slice(3).split("/");          // ["buxar", "table"] və ya ["buxar"]
+    const restSlug = fromSlug(parts[0] || "");
+    const step = parts[1] || "datetime";             // datetime | table | menu | success
+    const params = new URLSearchParams(search);
+    return (
+      <ErrorBoundary>
+        <MainApp
+          navigate={navigate}
+          restSlug={restSlug}
+          initialStep={step}
+          preTable={params.get("table") || ""}
+        />
+      </ErrorBoundary>
+    );
+  }
+
+  // / → Ana səhifə
+  return (
+    <ErrorBoundary>
+      <HomePage navigate={navigate} search={search} />
+    </ErrorBoundary>
+  );
+}
+
+
+// ════════════════════════════════════════════════════════════
+// 🏠 ANA SƏHİFƏ  →  /
+// ════════════════════════════════════════════════════════════
+function HomePage({ navigate, search: searchProp }) {
+  const [restaurants, setRests] = useState([]);
+  const [loading, setLoad]      = useState(true);
+  const [searchQ, setSearchQ]   = useState("");
+  const params = new URLSearchParams(searchProp || "");
+
+  useEffect(() => {
+    supabase.from("restaurants").select("*").order("name").then(({ data }) => {
+      setRests((data || []).map(r => ({
+        ...r, priceRange: r.price_range || "₼₼",
+        tags: Array.isArray(r.tags) ? r.tags : []
+      })));
+      setLoad(false);
+    });
+  }, []);
+
+  const filtered = searchQ
+    ? restaurants.filter(r => {
+        const q = searchQ.toLowerCase();
+        return r.name?.toLowerCase().includes(q)
+          || r.cuisine?.toLowerCase().includes(q)
+          || r.location?.toLowerCase().includes(q)
+          || (r.tags || []).some(t => t.toLowerCase().includes(q));
+      })
+    : restaurants;
+
+  const css = `
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+    *{box-sizing:border-box;margin:0;padding:0;}body{background:#F8FAFC;}
+    input,select,textarea{font-family:'Inter',system-ui,sans-serif;}
+    .rcard{transition:box-shadow .2s,transform .2s;cursor:pointer;}
+    .rcard:hover{box-shadow:0 8px 32px rgba(0,0,0,.1);transform:translateY(-3px);}
+    ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:10px;}
+  `;
+
+  return (
+    <div style={{ fontFamily:"'Inter',system-ui,sans-serif", background:"#F8FAFC", minHeight:"100vh", color:"#0F172A" }}>
+      <style>{css}</style>
+      <header style={{ background:"#fff", borderBottom:"1px solid #E2E8F0", position:"sticky", top:0, zIndex:100, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 2rem", height:"60px", boxShadow:"0 1px 3px rgba(0,0,0,.04)" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:".6rem" }}>
+          <div style={{ width:"32px", height:"32px", borderRadius:"8px", background:"#0F172A", display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1rem" }}>🍽️</div>
+          <div>
+            <div style={{ fontWeight:800, fontSize:"1.05rem", letterSpacing:"-.03em" }}>MasaAz</div>
+            <div style={{ fontSize:".55rem", letterSpacing:".15em", textTransform:"uppercase", color:"#94A3B8", marginTop:"-2px" }}>Rezervasiya</div>
+          </div>
+        </div>
+        <button onClick={() => navigate("/cancel")} style={{ background:"none", border:"1px solid #E2E8F0", color:"#64748B", padding:".4rem .9rem", borderRadius:"8px", fontSize:".78rem", fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+          Rezervasiyanı ləğv et
+        </button>
+      </header>
+
+      <div style={{ background:"#0F172A", color:"#fff", padding:"4rem 2rem 3.5rem", textAlign:"center" }}>
+        <div style={{ display:"inline-block", background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:"20px", padding:".35rem 1rem", fontSize:".7rem", letterSpacing:".15em", textTransform:"uppercase", color:"#94A3B8", marginBottom:"1.2rem" }}>Bakının ən yaxşı restoranları</div>
+        <h1 style={{ fontSize:"clamp(2rem,5vw,3.8rem)", fontWeight:800, lineHeight:1.1, letterSpacing:"-.03em", marginBottom:"1rem" }}>
+          Masanızı indi<br/><span style={{ color:"#60A5FA" }}>rezerv edin</span>
+        </h1>
+        <p style={{ color:"#94A3B8", fontSize:"1rem", maxWidth:"440px", margin:"0 auto", lineHeight:1.6 }}>
+          Restoranı seçin, masanı rezerv edin, menyudan əvvəlcədən sifariş verin.
+        </p>
+      </div>
+
+      <div style={{ padding:"1.2rem 2rem 0", maxWidth:"1200px", margin:"0 auto" }}>
+        <div style={{ position:"relative", maxWidth:"460px" }}>
+          <span style={{ position:"absolute", left:".9rem", top:"50%", transform:"translateY(-50%)", fontSize:"1rem", pointerEvents:"none" }}>🔍</span>
+          <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Restoran axtar... (ad, mətbəx, yer)"
+            style={{ width:"100%", padding:".75rem 1rem .75rem 2.6rem", border:"1.5px solid #E2E8F0", borderRadius:"12px", fontSize:".9rem", outline:"none", fontFamily:"inherit", background:"#fff" }}/>
+          {searchQ && <button onClick={() => setSearchQ("")} style={{ position:"absolute", right:".7rem", top:"50%", transform:"translateY(-50%)", background:"none", border:"none", cursor:"pointer", color:"#94A3B8", fontSize:"1rem" }}>✕</button>}
+        </div>
+      </div>
+
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))", gap:"1.2rem", padding:"1.2rem 2rem 2rem", maxWidth:"1200px", margin:"0 auto" }}>
+        {loading && (
+          <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"4rem", color:"#94A3B8" }}>
+            <div style={{ fontSize:"2rem", marginBottom:"1rem" }}>⏳</div>
+            <div style={{ fontWeight:600 }}>Restoranlar yüklənir...</div>
+          </div>
+        )}
+        {!loading && filtered.length === 0 && (
+          <div style={{ gridColumn:"1/-1", textAlign:"center", padding:"3rem", color:"#94A3B8" }}>
+            <div style={{ fontSize:"2.5rem", marginBottom:"1rem" }}>{searchQ ? "🔍" : "🏛️"}</div>
+            <div style={{ fontWeight:700, fontSize:"1rem" }}>{searchQ ? `"${searchQ}" üçün nəticə yoxdur` : "Hələ restoran yoxdur"}</div>
+          </div>
+        )}
+        {filtered.map(r => (
+          <div key={r.id} className="rcard"
+            style={{ background:"#fff", border:"1px solid #E2E8F0", borderRadius:"14px", overflow:"hidden", opacity:r.available?1:0.5, boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
+            onClick={() => { if (!r.available) return; navigate(`/r/${toSlug(r.name)}`); }}>
+            <div style={{ height:"5px", background:r.accent||"#3B82F6" }}/>
+            <div style={{ padding:"1.4rem" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:"1rem" }}>
+                <div style={{ width:"48px", height:"48px", borderRadius:"12px", background:`${r.accent||"#3B82F6"}15`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"1.4rem" }}>{r.emoji||"🍽️"}</div>
+                {!r.available
+                  ? <span style={{ fontSize:".62rem", padding:".2rem .55rem", background:"#FEF2F2", border:"1px solid #FECACA", color:"#DC2626", borderRadius:"20px", fontWeight:600 }}>Tam dolu</span>
+                  : <span style={{ fontSize:".72rem", color:"#94A3B8", fontWeight:500 }}>{r.priceRange}</span>
+                }
+              </div>
+              <div style={{ fontWeight:700, fontSize:"1.2rem", marginBottom:".2rem" }}>{r.name}</div>
+              <div style={{ fontSize:".72rem", color:"#94A3B8", marginBottom:".8rem", textTransform:"uppercase", letterSpacing:".08em" }}>{r.cuisine}</div>
+              <div style={{ display:"flex", alignItems:"center", gap:".4rem", marginBottom:".4rem" }}>
+                <span style={{ color:"#F59E0B" }}>★</span>
+                <span style={{ fontWeight:700, fontSize:".9rem" }}>{r.rating}</span>
+              </div>
+              <div style={{ fontSize:".76rem", color:"#64748B", marginBottom:"1rem" }}>📍 {r.location}</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:".3rem", marginBottom:"1.1rem" }}>
+                {r.tags.map(t => <span key={t} style={{ fontSize:".65rem", padding:".2rem .55rem", borderRadius:"20px", background:`${r.accent||"#3B82F6"}10`, color:r.accent||"#3B82F6", border:`1px solid ${r.accent||"#3B82F6"}25`, fontWeight:500 }}>{t}</span>)}
+              </div>
+              {r.available && (
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"center", padding:".65rem", borderRadius:"8px", background:"#0F172A", color:"#fff", fontSize:".82rem", fontWeight:600 }}>
+                  Rezervasiya et →
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ─── ƏSAS REZERVASIYA ────────────────────────────────────────
-function MainApp({directSlug}) {
-  const [step,setStep]           = useState("home");
-  const [searchQ,setSearchQ]     = useState("");
+// Endpoint-lər:
+//   /r/:restSlug           → datetime step
+//   /r/:restSlug/table     → table step
+//   /r/:restSlug/menu      → menu step
+//   /r/:restSlug/success   → success step
+function MainApp({ navigate, restSlug, initialStep, preTable }) {
+  const [step,setStep]           = useState(initialStep || "datetime");
   const [restaurants,setRests]   = useState([]);
   const [dbTables,setTbls]       = useState([]);
   const [bookedLabels,setBkd]    = useState([]);
@@ -867,41 +1153,49 @@ function MainApp({directSlug}) {
   const [bookingCode,setBkCode]  = useState("");
   const [saving,setSaving]       = useState(false);
   const [saveError,setSaveErr]   = useState("");
-  const [cancelPhone,setCP]      = useState("");
-  const [cancelList,setCL]       = useState(null);
-  const [cancelLoading,setCLoad] = useState(false);
-  const [cancelMsg,setCMsg]      = useState("");
   const today = new Date().toISOString().split("T")[0];
+
+
+  // ── URL-based navigation ──
+  const navigateStep = useCallback((targetStep, options = {}) => {
+    const slug = toSlug(options.restName || (selRest ? selRest.name : restSlug));
+    if (targetStep === "home") {
+      navigate("/");
+    } else if (targetStep === "datetime") {
+      navigate(`/r/${slug}`);
+    } else if (targetStep === "success") {
+      navigate(`/r/${slug}/success`, { replace: true });
+    } else {
+      navigate(`/r/${slug}/${targetStep}`);
+    }
+    setStep(targetStep);
+  }, [navigate, selRest, restSlug]);
 
   useEffect(()=>{
     supabase.from("restaurants").select("*").order("name").then(({data})=>{
       const mapped=(data||[]).map(r=>({...r,priceRange:r.price_range||"₼₼",tags:Array.isArray(r.tags)?r.tags:[]}));
       setRests(mapped);
       setLR(false);
-      if(directSlug){
+      // restSlug varsa — həmin restoranı tap
+      if(restSlug){
         const match=mapped.find(r=>
-          r.name.toLowerCase()===directSlug.toLowerCase()||
-          r.name.toLowerCase().replace(/\s+/g,"-")===directSlug.toLowerCase()
+          toSlug(r.name)===restSlug ||
+          r.name.toLowerCase()===fromSlug(restSlug).toLowerCase()
         );
         if(match&&match.available){
           setSelRest(match);
-          // QR koddan gələn masa parametrini yoxla
-          const urlParams=new URLSearchParams(window.location.search);
-          const preTable=urlParams.get("table");
           supabase.from("tables").select("*").eq("restaurant_id",match.id).order("label").then(({data:td})=>{
             const tList=(td||[]).map(t=>({...t,desc:t.zone||"",img:t.img_url||""}));
             setTbls(tList);
             if(preTable){
-              // Həmin masanı öncədən seç
               const found=tList.find(t=>t.label.toLowerCase()===preTable.toLowerCase());
               if(found) setSelTbl(found);
             }
           });
-          setStep("datetime");
         }
       }
     });
-  },[]);
+  },[restSlug]);
 
   const loadTables=async restId=>{
     const {data}=await supabase.from("tables").select("*").eq("restaurant_id",restId).order("label");
@@ -937,7 +1231,7 @@ function MainApp({directSlug}) {
   const preview=hoverTable||selTable;
   const stepNum={home:0,datetime:1,table:2,menu:3,success:4}[step]||0;
 
-  const reset=()=>{setStep("home");setSelRest(null);setSelDate("");setSelTime("");setSelTbl(null);setHover(null);setCart({});setGuests(2);setCustName("");setCustPhone("");setBkCode("");setSaveErr("");setBkd([]);setSlots({});};
+  const reset=()=>{navigate("/");setSelRest(null);setSelDate("");setSelTime("");setSelTbl(null);setHover(null);setCart({});setGuests(2);setCustName("");setCustPhone("");setBkCode("");setSaveErr("");setBkd([]);setSlots({});};
 
   const submitReservation=async()=>{
     setSaving(true);setSaveErr("");
@@ -950,7 +1244,7 @@ function MainApp({directSlug}) {
     });
     setSaving(false);
     if(error){setSaveErr("Xəta baş verdi. Yenidən cəhd edin.");return;}
-    setBkCode(code);setStep("success");
+    setBkCode(code);navigateStep("success");
     // WhatsApp xəbərdarlığı
     const lines=[
       "Salam "+custName+"! 🍽️","",
@@ -1002,8 +1296,8 @@ function MainApp({directSlug}) {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:".8rem"}}>
           {cartCount>0&&step!=="success"&&<div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:"20px",padding:".35rem .9rem",fontSize:".82rem",fontWeight:600,color:"#2563EB"}}>🛒 {cartCount} · {cartTotal}₼</div>}
-          <button onClick={()=>setStep(step==="cancel"?"home":"cancel")} style={{background:step==="cancel"?"#F1F5F9":"none",border:"1px solid #E2E8F0",color:"#64748B",padding:".4rem .9rem",borderRadius:"8px",fontSize:".78rem",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-            {step==="cancel"?"← Ana səhifə":"Rezervasiyanı ləğv et"}
+          <button onClick={()=>navigate("/cancel")} style={{background:"none",border:"1px solid #E2E8F0",color:"#64748B",padding:".4rem .9rem",borderRadius:"8px",fontSize:".78rem",fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            Rezervasiyanı ləğv et
           </button>
         </div>
       </header>
@@ -1022,81 +1316,10 @@ function MainApp({directSlug}) {
         </div>
       )}
 
-      {step==="cancel"&&(
-        <div style={{maxWidth:"560px",margin:"0 auto",padding:"2rem"}}>
-          <div style={{fontWeight:800,fontSize:"1.5rem",letterSpacing:"-.02em",marginBottom:".3rem"}}>Rezervasiyanı ləğv et</div>
-          <div style={{fontSize:".8rem",color:"#94A3B8",marginBottom:"1.8rem"}}>Telefon nömrənizi daxil edin</div>
-          <div style={{display:"flex",gap:".7rem",marginBottom:"1.2rem"}}>
-            <div style={{...box,flex:1}}><label style={lbl}>Telefon nömrəsi</label><input value={cancelPhone} onChange={e=>setCP(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchCancel()} placeholder="+994 50 000 00 00" style={inp}/></div>
-            <button onClick={searchCancel} disabled={cancelLoading} style={{background:"#0F172A",color:"#fff",border:"none",borderRadius:"10px",padding:"0 1.4rem",fontSize:".88rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{cancelLoading?"⏳":"Axtar"}</button>
-          </div>
-          {cancelMsg&&<div style={{background:cancelMsg.includes("✓")?"#F0FDF4":"#FEF2F2",border:`1px solid ${cancelMsg.includes("✓")?"#86EFAC":"#FECACA"}`,borderRadius:"10px",padding:".85rem 1rem",marginBottom:"1rem",color:cancelMsg.includes("✓")?"#16A34A":"#DC2626",fontWeight:600,fontSize:".88rem"}}>{cancelMsg}</div>}
-          {cancelList&&cancelList.length>0&&(
-            <div style={{background:"#fff",borderRadius:"14px",border:"1px solid #E2E8F0",overflow:"hidden"}}>
-              <div style={{padding:".9rem 1.2rem",borderBottom:"1px solid #F1F5F9",fontWeight:700,fontSize:".9rem"}}>Aktiv rezervasiyalar ({cancelList.length})</div>
-              {cancelList.map(r=>(
-                <div key={r.id} style={{padding:"1rem 1.2rem",borderBottom:"1px solid #F8FAFC",display:"flex",justifyContent:"space-between",alignItems:"center",gap:"1rem"}}>
-                  <div>
-                    <div style={{fontWeight:700,fontSize:".9rem",marginBottom:".2rem"}}>{r.restaurant_name}</div>
-                    <div style={{fontSize:".75rem",color:"#64748B"}}>📅 {r.date} · ⏰ {r.time} · 🪑 {r.table_label} · 👥 {r.guests} nf</div>
-                    {r.booking_code&&<div style={{fontSize:".68rem",color:"#3B82F6",marginTop:".1rem"}}>Kod: #{r.booking_code}</div>}
-                  </div>
-                  <button onClick={()=>doCancel(r.id)} style={{background:"#FEF2F2",color:"#DC2626",border:"1px solid #FECACA",borderRadius:"8px",padding:".5rem .9rem",fontSize:".78rem",fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",flexShrink:0}}>Ləğv et</button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {step==="home"&&(
-        <div>
-          <div style={{background:"#0F172A",color:"#fff",padding:"4rem 2rem 3.5rem",textAlign:"center"}}>
-            <div style={{display:"inline-block",background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.12)",borderRadius:"20px",padding:".35rem 1rem",fontSize:".7rem",letterSpacing:".15em",textTransform:"uppercase",color:"#94A3B8",marginBottom:"1.2rem"}}>Bakının ən yaxşı restoranları</div>
-            <h1 style={{fontSize:"clamp(2rem,5vw,3.8rem)",fontWeight:800,lineHeight:1.1,letterSpacing:"-.03em",marginBottom:"1rem"}}>Masanızı indi<br/><span style={{color:"#60A5FA"}}>rezerv edin</span></h1>
-            <p style={{color:"#94A3B8",fontSize:"1rem",maxWidth:"440px",margin:"0 auto",lineHeight:1.6}}>Restoranı seçin, masanı rezerv edin, menyudan əvvəlcədən sifariş verin.</p>
-          </div>
-          <div style={{padding:"1.2rem 2rem 0",maxWidth:"1200px",margin:"0 auto"}}>
-            <div style={{position:"relative",maxWidth:"460px"}}>
-              <span style={{position:"absolute",left:".9rem",top:"50%",transform:"translateY(-50%)",fontSize:"1rem",pointerEvents:"none"}}>🔍</span>
-              <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} placeholder="Restoran axtar... (ad, mətbəx, yer)" style={{width:"100%",padding:".75rem 1rem .75rem 2.6rem",border:"1.5px solid #E2E8F0",borderRadius:"12px",fontSize:".9rem",outline:"none",fontFamily:"inherit",background:"#fff"}}/>
-              {searchQ&&<button onClick={()=>setSearchQ("")} style={{position:"absolute",right:".7rem",top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#94A3B8",fontSize:"1rem"}}>✕</button>}
-            </div>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:"1.2rem",padding:"1.2rem 2rem 2rem",maxWidth:"1200px",margin:"0 auto"}}>
-            {loadingRests&&<div style={{gridColumn:"1/-1",textAlign:"center",padding:"4rem",color:"#94A3B8"}}><div style={{fontSize:"2rem",marginBottom:"1rem"}}>⏳</div><div style={{fontWeight:600}}>Restoranlar yüklənir...</div></div>}
-            {!loadingRests&&(searchQ?restaurants.filter(r=>{const q=searchQ.toLowerCase();return r.name?.toLowerCase().includes(q)||r.cuisine?.toLowerCase().includes(q)||r.location?.toLowerCase().includes(q)||(r.tags||[]).some(t=>t.toLowerCase().includes(q));}):restaurants).length===0&&(
-              <div style={{gridColumn:"1/-1",textAlign:"center",padding:"3rem",color:"#94A3B8"}}>
-                <div style={{fontSize:"2.5rem",marginBottom:"1rem"}}>{searchQ?"🔍":"🏛️"}</div>
-                <div style={{fontWeight:700,fontSize:"1rem"}}>{searchQ?`"${searchQ}" üçün nəticə yoxdur`:"Hələ restoran yoxdur"}</div>
-                {searchQ&&<div style={{fontSize:".8rem",marginTop:".3rem"}}>Başqa söz cəhd edin</div>}
-              </div>
-            )}
-            {(searchQ?restaurants.filter(r=>{const q=searchQ.toLowerCase();return r.name?.toLowerCase().includes(q)||r.cuisine?.toLowerCase().includes(q)||r.location?.toLowerCase().includes(q)||(r.tags||[]).some(t=>t.toLowerCase().includes(q));}):restaurants).map(r=>(
-              <div key={r.id} className="card" style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:"14px",overflow:"hidden",cursor:r.available?"pointer":"default",opacity:r.available?1:0.5,boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}
-                onClick={()=>{if(!r.available)return;setSelRest(r);loadTables(r.id);setStep("datetime");}}>
-                <div style={{height:"5px",background:r.accent||"#3B82F6"}}/>
-                <div style={{padding:"1.4rem"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"1rem"}}>
-                    <div style={{width:"48px",height:"48px",borderRadius:"12px",background:`${r.accent||"#3B82F6"}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.4rem"}}>{r.emoji||"🍽️"}</div>
-                    {!r.available?<span style={{fontSize:".62rem",padding:".2rem .55rem",background:"#FEF2F2",border:"1px solid #FECACA",color:"#DC2626",borderRadius:"20px",fontWeight:600}}>Tam dolu</span>:<span style={{fontSize:".72rem",color:"#94A3B8",fontWeight:500}}>{r.priceRange}</span>}
-                  </div>
-                  <div style={{fontWeight:700,fontSize:"1.2rem",marginBottom:".2rem"}}>{r.name}</div>
-                  <div style={{fontSize:".72rem",color:"#94A3B8",marginBottom:".8rem",textTransform:"uppercase",letterSpacing:".08em"}}>{r.cuisine}</div>
-                  <div style={{display:"flex",alignItems:"center",gap:".4rem",marginBottom:".4rem"}}><span style={{color:"#F59E0B"}}>★</span><span style={{fontWeight:700,fontSize:".9rem"}}>{r.rating}</span></div>
-                  <div style={{fontSize:".76rem",color:"#64748B",marginBottom:"1rem"}}>📍 {r.location}</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:".3rem",marginBottom:"1.1rem"}}>{r.tags.map(t=><span key={t} style={{fontSize:".65rem",padding:".2rem .55rem",borderRadius:"20px",background:`${r.accent||"#3B82F6"}10`,color:r.accent||"#3B82F6",border:`1px solid ${r.accent||"#3B82F6"}25`,fontWeight:500}}>{t}</span>)}</div>
-                  {r.available&&<div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:".65rem",borderRadius:"8px",background:"#0F172A",color:"#fff",fontSize:".82rem",fontWeight:600}}>Rezervasiya et →</div>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {step==="datetime"&&selRest&&(
         <div style={{maxWidth:"720px",margin:"0 auto",padding:"2rem"}}>
-          <button onClick={()=>setStep("home")} style={back}>← Geri</button>
+          <button onClick={()=>navigate("/")} style={back}>← Geri</button>
           <div style={{display:"flex",alignItems:"center",gap:".9rem",...box,marginBottom:"1.8rem"}}>
             <div style={{width:"42px",height:"42px",borderRadius:"10px",background:`${selRest.accent||"#3B82F6"}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.3rem",flexShrink:0}}>{selRest.emoji||"🍽️"}</div>
             <div><div style={{fontWeight:700,fontSize:"1rem"}}>{selRest.name}</div><div style={{fontSize:".72rem",color:"#94A3B8"}}>{selRest.cuisine} · {selRest.location}</div></div>
@@ -1141,7 +1364,7 @@ function MainApp({directSlug}) {
               </div>
             )}
           </div>
-          <button className="btnp" onClick={()=>setStep("table")} disabled={!selDate||!selTime||!custName||!custPhone}
+          <button className="btnp" onClick={()=>navigateStep("table")} disabled={!selDate||!selTime||!custName||!custPhone}
             style={{background:selDate&&selTime&&custName&&custPhone?"#0F172A":"#E2E8F0",color:selDate&&selTime&&custName&&custPhone?"#fff":"#94A3B8",border:"none",padding:".9rem 2rem",fontFamily:"inherit",fontSize:".95rem",fontWeight:700,cursor:selDate&&selTime&&custName&&custPhone?"pointer":"not-allowed",borderRadius:"10px"}}>
             Masa Seç →
           </button>
@@ -1150,7 +1373,7 @@ function MainApp({directSlug}) {
 
       {step==="table"&&selRest&&(
         <div style={{maxWidth:"880px",margin:"0 auto",padding:"2rem"}}>
-          <button onClick={()=>setStep("datetime")} style={back}>← Geri</button>
+          <button onClick={()=>navigateStep("datetime")} style={back}>← Geri</button>
           <div style={{fontWeight:800,fontSize:"1.5rem",letterSpacing:"-.02em",marginBottom:".3rem"}}>Masanı seçin</div>
           <div style={{fontSize:".75rem",color:"#94A3B8",marginBottom:"1.2rem"}}>{selRest.name} · {selDate} · {selTime} · {guests} nəfər</div>
           {dbTables.length===0?(
@@ -1172,7 +1395,7 @@ function MainApp({directSlug}) {
                     const isBooked=bookedLabels.includes(t.label),isSelected=selTable?.id===t.id,isHovered=hoverTable?.id===t.id;
                     return (
                       <div key={t.id} className="tsvg" style={{position:"absolute",left:`${t.x||10}%`,top:`${t.y||10}%`,transform:"translate(-50%,-50%)",cursor:isBooked?"not-allowed":"pointer",opacity:isBooked?0.55:1,filter:isSelected?"drop-shadow(0 2px 8px rgba(37,99,235,.25))":isHovered?"drop-shadow(0 2px 6px rgba(0,0,0,.1))":"none"}}
-                        onClick={()=>{if(!isBooked){if(isSelected){setStep("menu");}else{setSelTbl(t);}}}} onMouseEnter={()=>setHover(t)} onMouseLeave={()=>setHover(null)}>
+                        onClick={()=>{if(!isBooked){if(isSelected){navigateStep("menu");}else{setSelTbl(t);}}}} onMouseEnter={()=>setHover(t)} onMouseLeave={()=>setHover(null)}>
                         <TableSVG shape={t.shape||"rect"} label={t.label} seats={t.seats} isBooked={isBooked} isSelected={isSelected} isHovered={isHovered&&!isBooked}/>
                       </div>
                     );
@@ -1192,14 +1415,14 @@ function MainApp({directSlug}) {
                       <div style={{fontSize:".72rem",color:"#94A3B8"}}>👥 {preview.seats} nəfərlik</div>
                     </div>
                     {!bookedLabels.includes(preview.label)&&(
-                      <button className="btnp" onClick={()=>{const t=preview;if(selTable?.id===t.id){setStep("menu");}else{setSelTbl(t);setStep("menu");}}} style={{background:"#0F172A",color:"#fff",border:"none",padding:".55rem 1rem",fontFamily:"inherit",fontSize:".76rem",fontWeight:700,cursor:"pointer",borderRadius:"8px",width:"fit-content",marginTop:".7rem"}}>
+                      <button className="btnp" onClick={()=>{const t=preview;if(selTable?.id===t.id){navigateStep("menu");}else{setSelTbl(t);navigateStep("menu");}}} style={{background:"#0F172A",color:"#fff",border:"none",padding:".55rem 1rem",fontFamily:"inherit",fontSize:".76rem",fontWeight:700,cursor:"pointer",borderRadius:"8px",width:"fit-content",marginTop:".7rem"}}>
                         {selTable?.id===preview.id?"→ Menyuya keç":"Bu masanı seç → Menyu"}
                       </button>
                     )}
                   </div>
                 </div>
               )}
-              <button className="btnp" onClick={()=>setStep("menu")} disabled={!selTable} style={{background:selTable?"#0F172A":"#E2E8F0",color:selTable?"#fff":"#94A3B8",border:"none",padding:".9rem 2rem",fontFamily:"inherit",fontSize:".95rem",fontWeight:700,cursor:selTable?"pointer":"not-allowed",borderRadius:"10px"}}>Davam et →</button>
+              <button className="btnp" onClick={()=>navigateStep("menu")} disabled={!selTable} style={{background:selTable?"#0F172A":"#E2E8F0",color:selTable?"#fff":"#94A3B8",border:"none",padding:".9rem 2rem",fontFamily:"inherit",fontSize:".95rem",fontWeight:700,cursor:selTable?"pointer":"not-allowed",borderRadius:"10px"}}>Davam et →</button>
             </>
           )}
         </div>
@@ -1207,7 +1430,7 @@ function MainApp({directSlug}) {
 
       {step==="menu"&&selRest&&selTable&&(
         <div style={{maxWidth:"720px",margin:"0 auto",padding:"2rem"}}>
-          <button onClick={()=>setStep("table")} style={back}>← Geri</button>
+          <button onClick={()=>navigateStep("table")} style={back}>← Geri</button>
           <div style={{fontWeight:800,fontSize:"1.5rem",letterSpacing:"-.02em",marginBottom:".3rem"}}>Əvvəlcədən sifariş</div>
           <div style={{fontSize:".75rem",color:"#94A3B8",marginBottom:"1.8rem"}}>Gəlincə hazır olsun (istəyə görə)</div>
           {menuItems.length===0?(
