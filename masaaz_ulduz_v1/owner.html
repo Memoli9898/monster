@@ -63,7 +63,7 @@ async function sendWA(phone,message){
 }
 
 const SB_URL = "https://jhyaiuvubbrtngvyoyhi.supabase.co";
-const SB_KEY = "sb_publishable_-AK2kMXWLWYqhA7V5GoW_w_tuFg-B1W";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoeWFpdXZ1YmJydG5ndnlveWhpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2OTg2NTIsImV4cCI6MjA4NzI3NDY1Mn0.UGZhj0rdN9lh7tLnEP1mzFBXlbxFrxWIi7kYUv7_-J0";
 const sb = window.supabase.createClient(SB_URL, SB_KEY);
 
 // ── ABUNƏLİK HELPERLƏRİ ──────────────────────────────────
@@ -120,10 +120,12 @@ function LoginPage({onLogin}){
   const login = async() => {
     if(!username.trim() || !password.trim()){ setError("İstifadəçi adı və şifrəni daxil edin"); return; }
     setLoading(true); setError("");
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password.trim()));
+    const hashed = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
     const {data, error:err} = await sb.from("admin_users")
       .select("*")
       .eq("username", username.trim().toLowerCase())
-      .eq("password_hash", password)
+      .eq("password_hash", hashed)
       .eq("is_active", true)
       .eq("is_super", true)
       .maybeSingle();
@@ -2025,7 +2027,7 @@ function OnboardingRequestsPage(){
 
     const {error: userErr} = await sb.from("admin_users").insert({
       username,
-      password_hash: password,
+      password_hash: await (async()=>{const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(password));return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");})(),
       display_name: req.business_name,
       restaurant_id: restaurantId,
       is_super: false,
