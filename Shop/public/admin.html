@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BAZAA Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config/supabase.config.js"></script>
+<style>
+:root{--bg:#fff;--bg-alt:#F7F8FA;--ink:#111318;--ink-soft:#5A6072;--brand:#2954E8;--line:#E7E9EF;--danger:#E5433F;--ok:#0FA968;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:'Manrope',Arial,sans-serif;background:var(--bg);color:var(--ink);}
+.field{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px;font-size:14px;background:var(--bg-alt);}
+textarea.field{min-height:70px;resize:vertical;}
+label{font-size:12px;color:var(--ink-soft);font-weight:600;display:block;margin-bottom:5px;}
+.btn{background:var(--brand);color:#fff;border:none;padding:11px 20px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13.5px;}
+.btn-danger{background:var(--danger);}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.login-box{max-width:300px;width:100%;text-align:center;padding:20px;}
+.shell{display:flex;min-height:100vh;}
+.side{width:200px;border-right:1px solid var(--line);padding:16px;display:none;flex-direction:column;gap:4px;}
+.side button{text-align:left;background:none;border:none;padding:10px;border-radius:8px;font-size:13.5px;color:var(--ink-soft);cursor:pointer;}
+.side button.active{background:#EAF0FF;color:var(--brand);font-weight:700;}
+.main{flex:1;padding:24px;display:none;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:8px;border-bottom:1px solid var(--line);color:var(--ink-soft);font-size:11px;text-transform:uppercase;}
+td{padding:8px;border-bottom:1px solid var(--line);}
+.card-stat{background:var(--bg-alt);border:1px solid var(--line);padding:14px;border-radius:10px;}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px;}
+.modal-overlay{position:fixed;inset:0;background:rgb(0 0 0/45%);display:none;align-items:center;justify-content:center;z-index:99;padding:16px;}
+.modal-overlay.open{display:flex;}
+.modal-box{background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:90vh;overflow-y:auto;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+img.thumb{width:34px;height:34px;object-fit:cover;border-radius:6px;}
+</style>
+</head>
+<body>
+
+<div class="login-wrap" id="loginWrap">
+  <div class="login-box">
+    <h2>Admin girişi</h2>
+    <input class="field" id="adminPass" type="password" placeholder="Admin parolu">
+    <button class="btn" style="width:100%;" onclick="login()">Daxil ol</button>
+  </div>
+</div>
+
+<div class="shell" id="shell">
+  <aside class="side" id="side">
+    <button class="active" onclick="setTab('overview')" data-t="overview">📊 İcmal</button>
+    <button onclick="setTab('products')" data-t="products">🧺 Məhsullar</button>
+    <button onclick="setTab('orders')" data-t="orders">📦 Sifarişlər</button>
+    <button onclick="setTab('settings')" data-t="settings">⚙️ Tənzimləmələr</button>
+    <button onclick="setTab('payment')" data-t="payment">💳 Ödəniş/WhatsApp</button>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<div class="modal-overlay" id="pModal">
+  <div class="modal-box">
+    <h3 id="pModalTitle">Yeni məhsul</h3>
+    <input type="hidden" id="pfId">
+    <label>Şəkil URL</label><input class="field" id="pfImage">
+    <label>Video URL (opsional)</label><input class="field" id="pfVideo">
+    <label>Ad</label><input class="field" id="pfName">
+    <div class="row2">
+      <div><label>Qiymət (₼)</label><input class="field" id="pfPrice" type="number" step="0.01"></div>
+      <div><label>Endirimli (₼, opsional)</label><input class="field" id="pfSale" type="number" step="0.01"></div>
+    </div>
+    <div class="row2">
+      <div><label>Kateqoriya</label><input class="field" id="pfCat"></div>
+      <div><label>Stok</label><input class="field" id="pfStock" type="number"></div>
+    </div>
+    <label>Təsvir</label><textarea class="field" id="pfDesc"></textarea>
+    <div style="display:flex;gap:10px;">
+      <button class="btn" style="flex:1;background:#eee;color:#111;" onclick="closeModal()">Ləğv et</button>
+      <button class="btn" style="flex:1;" onclick="saveProduct()">Yadda saxla</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const supabase = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+let ADMIN_PASS = '';
+
+function login(){
+  ADMIN_PASS = document.getElementById('adminPass').value;
+  if(!ADMIN_PASS){ alert('Parol yaz'); return; }
+  // Real yoxlama /api/admin-settings çağırışında baş verəcək (server tərəfdə).
+  document.getElementById('loginWrap').style.display='none';
+  document.getElementById('side').style.display='flex';
+  document.getElementById('main').style.display='block';
+  setTab('overview');
+}
+
+function money(n){ return Number(n).toFixed(2).replace(/\.00$/,'') + ' ₼'; }
+
+function setTab(t){
+  document.querySelectorAll('.side button').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
+  if(t==='overview') renderOverview();
+  if(t==='products') renderProducts();
+  if(t==='orders') renderOrders();
+  if(t==='settings') renderSettings();
+  if(t==='payment') renderPayment();
+}
+
+async function renderOverview(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: orders } = await supabase.from('orders').select('*').order('created_at',{ascending:false});
+  const { count: views } = await supabase.from('page_views').select('*',{count:'exact',head:true});
+  const revenue = (orders||[]).filter(o=>o.status!=='cancelled').reduce((s,o)=>s+Number(o.total),0);
+  const pending = (orders||[]).filter(o=>o.status==='pending').length;
+  main.innerHTML = `
+    <h2>İcmal</h2>
+    <div class="stat-grid">
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Ümumi gəlir</div><div style="font-size:22px;font-weight:800;">${money(revenue)}</div></div>
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Sifariş sayı</div><div style="font-size:22px;font-weight:800;">${(orders||[]).length}</div></div>
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Gözləyən</div><div style="font-size:22px;font-weight:800;">${pending}</div></div>
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Sayt baxışı (trafik)</div><div style="font-size:22px;font-weight:800;">${views||0}</div></div>
+    </div>
+    <h3>Son sifarişlər</h3>
+    <table><thead><tr><th>№</th><th>Müştəri</th><th>Məbləğ</th><th>Status</th></tr></thead>
+    <tbody>${(orders||[]).slice(0,8).map(o=>`<tr><td>${o.order_number}</td><td>${o.customer_name}</td><td>${money(o.total)}</td><td>${o.status}</td></tr>`).join('')||'<tr><td colspan="4">Sifariş yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+
+async function renderProducts(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: products } = await supabase.from('products').select('*').order('created_at',{ascending:false});
+  main.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h2 style="margin:0;">Məhsullar</h2>
+      <button class="btn" onclick="openModal()">+ Yeni məhsul</button>
+    </div>
+    <table><thead><tr><th></th><th>Ad</th><th>Qiymət</th><th>Stok</th><th></th></tr></thead>
+    <tbody>${(products||[]).map(p=>`
+      <tr>
+        <td><img class="thumb" src="${p.image_url||'https://placehold.co/60x60'}"></td>
+        <td>${p.name}</td>
+        <td>${p.sale_price>0?`<s>${money(p.price)}</s> ${money(p.sale_price)}`:money(p.price)}</td>
+        <td>${p.stock}</td>
+        <td><button class="btn" style="padding:5px 10px;font-size:11px;" onclick='editProduct(${JSON.stringify(p)})'>Düzəlt</button>
+            <button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="deleteProduct('${p.id}')">Sil</button></td>
+      </tr>`).join('')||'<tr><td colspan="5">Məhsul yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+
+function openModal(){
+  document.getElementById('pModalTitle').textContent='Yeni məhsul';
+  ['pfId','pfImage','pfVideo','pfName','pfPrice','pfSale','pfCat','pfStock','pfDesc'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pModal').classList.add('open');
+}
+function editProduct(p){
+  document.getElementById('pModalTitle').textContent='Məhsulu düzəlt';
+  document.getElementById('pfId').value=p.id;
+  document.getElementById('pfImage').value=p.image_url||'';
+  document.getElementById('pfVideo').value=p.video_url||'';
+  document.getElementById('pfName').value=p.name||'';
+  document.getElementById('pfPrice').value=p.price||0;
+  document.getElementById('pfSale').value=p.sale_price||'';
+  document.getElementById('pfCat').value=p.category||'';
+  document.getElementById('pfStock').value=p.stock||0;
+  document.getElementById('pfDesc').value=p.description||'';
+  document.getElementById('pModal').classList.add('open');
+}
+function closeModal(){ document.getElementById('pModal').classList.remove('open'); }
+
+async function saveProduct(){
+  const id = document.getElementById('pfId').value;
+  const payload = {
+    name: document.getElementById('pfName').value.trim(),
+    image_url: document.getElementById('pfImage').value.trim(),
+    video_url: document.getElementById('pfVideo').value.trim(),
+    price: parseFloat(document.getElementById('pfPrice').value)||0,
+    sale_price: parseFloat(document.getElementById('pfSale').value)||0,
+    category: document.getElementById('pfCat').value.trim()||'Digər',
+    stock: parseInt(document.getElementById('pfStock').value)||0,
+    description: document.getElementById('pfDesc').value.trim(),
+  };
+  if(!payload.name){ alert('Ad yaz'); return; }
+  if(id){ await supabase.from('products').update(payload).eq('id', id); }
+  else { await supabase.from('products').insert(payload); }
+  closeModal();
+  renderProducts();
+}
+async function deleteProduct(id){
+  if(!confirm('Silmək istəyirsən?')) return;
+  await supabase.from('products').delete().eq('id', id);
+  renderProducts();
+}
+
+async function renderOrders(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: orders } = await supabase.from('orders').select('*').order('created_at',{ascending:false});
+  main.innerHTML = `
+    <h2>Sifarişlər</h2>
+    <table><thead><tr><th>№</th><th>Müştəri</th><th>Telefon</th><th>Məbləğ</th><th>Ödəniş</th><th>Status</th></tr></thead>
+    <tbody>${(orders||[]).map(o=>`
+      <tr>
+        <td>${o.order_number}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${money(o.total)}</td>
+        <td>${o.payment_method==='cash'?'Nağd':'Kart'}</td>
+        <td><select onchange="updateOrderStatus('${o.id}',this.value)">
+          ${['pending','paid','shipped','delivered','cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}
+        </select></td>
+      </tr>`).join('')||'<tr><td colspan="6">Sifariş yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+async function updateOrderStatus(id, status){
+  await supabase.from('orders').update({ status }).eq('id', id);
+}
+
+async function renderSettings(){
+  const main = document.getElementById('main');
+  const { data: s } = await supabase.from('site_settings').select('*').single();
+  main.innerHTML = `
+    <h2>Sayt Tənzimləmələri</h2>
+    <label>Mağaza adı</label><input class="field" id="stName" value="${s?.store_name||''}">
+    <label>Hero video URL (əsas menyuda animasiya)</label><input class="field" id="stVideo" value="${s?.hero_video_url||''}">
+    <label>Hero başlıq</label><input class="field" id="stTitle" value="${s?.hero_title||''}">
+    <label>Hero alt mətn</label><textarea class="field" id="stSub">${s?.hero_subtitle||''}</textarea>
+    <button class="btn" onclick="saveSiteSettings()">Yadda saxla</button>
+  `;
+}
+async function saveSiteSettings(){
+  await supabase.from('site_settings').update({
+    store_name: document.getElementById('stName').value.trim(),
+    hero_video_url: document.getElementById('stVideo').value.trim(),
+    hero_title: document.getElementById('stTitle').value.trim(),
+    hero_subtitle: document.getElementById('stSub').value.trim(),
+  }).eq('id', 1);
+  alert('Saxlanıldı');
+}
+
+async function renderPayment(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const resp = await fetch('/api/admin-settings', { headers: { 'x-admin-password': ADMIN_PASS } });
+  if(!resp.ok){ main.innerHTML = '<p style="color:red;">Parol yanlış və ya server xətası.</p>'; return; }
+  const { payment, whatsapp } = await resp.json();
+  main.innerHTML = `
+    <h2>Ödəniş (Payriff/GoldenPay)</h2>
+    <label>Provider</label><input class="field" id="payProvider" value="${payment?.provider||''}">
+    <label>Merchant ID</label><input class="field" id="payMerchant" value="${payment?.merchant_id||''}">
+    <label>API Key</label><input class="field" id="payApiKey" value="${payment?.api_key||''}">
+    <label>Bank adı</label><input class="field" id="payBank" value="${payment?.bank_name||''}">
+    <label>IBAN</label><input class="field" id="payIban" value="${payment?.iban||''}">
+    <label>Hesab sahibi</label><input class="field" id="payAccName" value="${payment?.account_name||''}">
+    <label>Ödəniş qeydi</label><textarea class="field" id="payNote">${payment?.pay_note||''}</textarea>
+    <button class="btn" onclick="savePaymentSettings()">Yadda saxla (Ödəniş)</button>
+
+    <h2 style="margin-top:30px;">WhatsApp (Green-API)</h2>
+    <label>Instance ID</label><input class="field" id="waInstance" value="${whatsapp?.instance_id||''}">
+    <label>API Token</label><input class="field" id="waToken" value="${whatsapp?.api_token||''}">
+    <label>Bildiriş göndəriləcək WhatsApp nömrə</label><input class="field" id="waPhone" value="${whatsapp?.notify_phone||''}">
+    <button class="btn" onclick="saveWhatsappSettings()">Yadda saxla (WhatsApp)</button>
+  `;
+}
+async function savePaymentSettings(){
+  const payment = {
+    provider: document.getElementById('payProvider').value.trim(),
+    merchant_id: document.getElementById('payMerchant').value.trim(),
+    api_key: document.getElementById('payApiKey').value.trim(),
+    bank_name: document.getElementById('payBank').value.trim(),
+    iban: document.getElementById('payIban').value.trim(),
+    account_name: document.getElementById('payAccName').value.trim(),
+    pay_note: document.getElementById('payNote').value.trim(),
+  };
+  await fetch('/api/admin-settings', {
+    method:'POST', headers:{'Content-Type':'application/json','x-admin-password':ADMIN_PASS},
+    body: JSON.stringify({ payment })
+  });
+  alert('Saxlanıldı');
+}
+async function saveWhatsappSettings(){
+  const whatsapp = {
+    instance_id: document.getElementById('waInstance').value.trim(),
+    api_token: document.getElementById('waToken').value.trim(),
+    notify_phone: document.getElementById('waPhone').value.trim(),
+  };
+  await fetch('/api/admin-settings', {
+    method:'POST', headers:{'Content-Type':'application/json','x-admin-password':ADMIN_PASS},
+    body: JSON.stringify({ whatsapp })
+  });
+  alert('Saxlanıldı');
+}
+</script>
+</body>
+</html>
