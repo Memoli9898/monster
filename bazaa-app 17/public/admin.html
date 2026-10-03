@@ -410,21 +410,30 @@ async function uploadHeroVideo(input){
 }
 
 async function saveSiteSettings(){
-  await sb.from('site_settings').update({
-    store_name: document.getElementById('stName').value.trim(),
-    hero_video_url: document.getElementById('stVideo').value.trim(),
-    footer_about: document.getElementById('stFooterAbout').value.trim(),
-    logo_url: document.getElementById('stLogoUrl').value.trim(),
-    logo_height: parseInt(document.getElementById('stLogoHeight').value)||28,
-    logo_align: document.getElementById('stLogoAlign').value,
-    banner_title: document.getElementById('stBannerTitle').value.trim(),
-    banner_subtitle: document.getElementById('stBannerSub').value.trim(),
-    banner_button_text: document.getElementById('stBannerBtn').value.trim(),
-    banner_image_url: document.getElementById('stBannerImg').value.trim(),
-    delivery_terms: document.getElementById('stDelivery').value.trim(),
-    return_policy: document.getElementById('stReturn').value.trim(),
-    contact_info: document.getElementById('stContact').value.trim(),
-  }).eq('id', 1);
+  const payload = {};
+  const fieldMap = {
+    stName: 'store_name',
+    stVideo: 'hero_video_url',
+    stFooterAbout: 'footer_about',
+    stLogoUrl: 'logo_url',
+    stLogoAlign: 'logo_align',
+    stBannerTitle: 'banner_title',
+    stBannerSub: 'banner_subtitle',
+    stBannerBtn: 'banner_button_text',
+    stBannerImg: 'banner_image_url',
+    stDelivery: 'delivery_terms',
+    stReturn: 'return_policy',
+    stContact: 'contact_info',
+  };
+  for(const [elId, col] of Object.entries(fieldMap)){
+    const el = document.getElementById(elId);
+    if(el) payload[col] = el.value.trim();
+  }
+  const heightEl = document.getElementById('stLogoHeight');
+  if(heightEl) payload.logo_height = parseInt(heightEl.value)||28;
+
+  const { error } = await sb.from('site_settings').update(payload).eq('id', 1);
+  if(error){ alert('Xəta: ' + error.message); return; }
   alert('Saxlanıldı');
 }
 
