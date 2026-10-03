@@ -415,6 +415,8 @@ async function saveSiteSettings(){
     hero_video_url: document.getElementById('stVideo').value.trim(),
     footer_about: document.getElementById('stFooterAbout').value.trim(),
     logo_url: document.getElementById('stLogoUrl').value.trim(),
+    logo_height: parseInt(document.getElementById('stLogoHeight').value)||28,
+    logo_align: document.getElementById('stLogoAlign').value,
     banner_title: document.getElementById('stBannerTitle').value.trim(),
     banner_subtitle: document.getElementById('stBannerSub').value.trim(),
     banner_button_text: document.getElementById('stBannerBtn').value.trim(),
@@ -480,6 +482,19 @@ async function renderDesign(){
       <span id="logoUploadStatus" style="font-size:11px;color:var(--ink-soft);"></span>
     </div>
     <input type="hidden" id="stLogoUrl" value="${s?.logo_url||''}">
+    <div class="row2" style="margin-bottom:14px;">
+      <div>
+        <label>Logo hündürlüyü (px)</label>
+        <input class="field" id="stLogoHeight" type="number" min="16" max="80" value="${s?.logo_height||28}">
+      </div>
+      <div>
+        <label>Logo yerləşməsi</label>
+        <select class="field" id="stLogoAlign">
+          <option value="left" ${(s?.logo_align||'left')==='left'?'selected':''}>Sol</option>
+          <option value="center" ${s?.logo_align==='center'?'selected':''}>Orta</option>
+        </select>
+      </div>
+    </div>
     <label>Əsas (brend) rəng — düymələr, qiymətlər</label>
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
       <input type="color" id="colBrand" value="${s?.color_brand||'#2954E8'}" style="width:50px;height:38px;border:1px solid var(--line);border-radius:8px;">

@@ -411,9 +411,17 @@ async function loadSettings(){
   document.getElementById('storeNameLabel3').textContent = data.store_name || 'BAZAA';
   document.title = data.store_name || 'BAZAA';
   if(data.logo_url){
-    document.getElementById('logoLink').innerHTML = `<img src="${data.logo_url}" class="logo-img" alt="${data.store_name||'Logo'}">`;
+    const h = data.logo_height || 28;
+    document.getElementById('logoLink').innerHTML = `<img src="${data.logo_url}" class="logo-img" style="height:${h}px;" alt="${data.store_name||'Logo'}">`;
   } else {
     document.getElementById('storeNameLabel').textContent = data.store_name || 'BAZAA';
+  }
+  if(data.logo_align === 'center'){
+    document.querySelector('.nav-row').style.justifyContent = 'center';
+    document.querySelector('.nav-row').style.position = 'relative';
+    document.getElementById('logoLink').style.position = 'absolute';
+    document.getElementById('logoLink').style.left = '50%';
+    document.getElementById('logoLink').style.transform = 'translateX(-50%)';
   }
   if(data.footer_about) document.getElementById('footerAboutEl').textContent = data.footer_about;
   const wrap = document.getElementById('heroVideoWrap');
