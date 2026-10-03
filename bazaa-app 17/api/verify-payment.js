@@ -76,7 +76,11 @@ export default async function handler(req, res) {
 
     // Stoku azalt
     for (const item of updatedOrder.items) {
-      await supabase.rpc('decrement_stock', { p_id: item.product_id, qty: item.qty }).catch(() => {});
+      try {
+        await supabase.rpc('decrement_stock', { p_id: item.product_id, qty: item.qty });
+      } catch (e) {
+        console.error('Stock decrement error:', e);
+      }
     }
 
     // WhatsApp bildirişi göndər
