@@ -60,7 +60,8 @@ export default async function handler(req, res) {
 
     const paymentStatus = statusData.payload?.paymentStatus;
 
-    if (paymentStatus !== 'PAID') {
+    // Payriff "PAID" yox, "APPROVED" qaytarır — hər ikisini uğur kimi qəbul edirik
+    if (paymentStatus !== 'PAID' && paymentStatus !== 'APPROVED') {
       // Hələ ödənilməyib (PENDING) və ya uğursuz olub (FAILED)
       return res.status(200).json({ status: paymentStatus || 'PENDING' });
     }
