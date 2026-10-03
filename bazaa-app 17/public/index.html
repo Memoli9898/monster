@@ -23,12 +23,15 @@ a{color:inherit;text-decoration:none;}
 button{font-family:inherit;cursor:pointer;}
 img{max-width:100%;display:block;}
 
+.top-loader{position:fixed;top:0;left:0;height:3px;background:var(--brand);z-index:999;width:0%;transition:width .3s ease;}
+.top-loader.done{opacity:0;transition:opacity .3s ease, width .3s ease;}
 .announce-bar{background:var(--ink);color:#fff;font-size:12.5px;padding:9px 0;position:relative;display:flex;align-items:center;justify-content:center;}
 .announce-bar .close-announce{position:absolute;right:16px;top:50%;transform:translateY(-50%);background:none;border:none;color:#fff;opacity:.6;font-size:16px;line-height:1;padding:4px;}
 .announce-bar .close-announce:hover{opacity:1;}
 header.nav-header{padding:14px 0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:40;}
 .nav-row{display:flex;align-items:center;gap:24px;}
 .logo{font-weight:800;font-size:19px;letter-spacing:-0.01em;flex-shrink:0;}
+.logo-img{height:28px;width:auto;display:block;flex-shrink:0;}
 nav.cats-inline{display:flex;gap:20px;flex-shrink:0;overflow-x:auto;}
 nav.cats-inline button{background:none;border:none;color:var(--ink-soft);font-size:13.5px;font-weight:600;padding:0;white-space:nowrap;}
 nav.cats-inline button:hover,nav.cats-inline button.active{color:var(--ink);}
@@ -175,6 +178,8 @@ textarea.field-input{resize:vertical;min-height:60px;}
 </head>
 <body>
 
+<div class="top-loader" id="topLoader"></div>
+
 <div class="announce-bar" id="announceBar">
   <span>🚚 50 ₼-dan yuxarı sifarişlərə pulsuz çatdırılma</span>
   <button class="close-announce" onclick="document.getElementById('announceBar').style.display='none'">✕</button>
@@ -182,7 +187,9 @@ textarea.field-input{resize:vertical;min-height:60px;}
 
 <header class="nav-header">
   <div class="wrap nav-row">
-    <span class="logo" id="storeNameLabel">BAZAA</span>
+    <a href="index.html" id="logoLink" style="display:flex;align-items:center;">
+      <span class="logo" id="storeNameLabel">BAZAA</span>
+    </a>
     <nav class="cats-inline" id="catNav"></nav>
     <div class="nav-search">
       <div class="nav-search-inner">
@@ -191,9 +198,9 @@ textarea.field-input{resize:vertical;min-height:60px;}
       </div>
     </div>
     <div class="nav-icons">
-      <a class="nav-icon-btn" href="admin.html" aria-label="Admin">
+      <button class="nav-icon-btn" onclick="openAccountModal()" aria-label="Hesabım" id="accountBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-7 8-7s8 3 8 7"/></svg>
-      </a>
+      </button>
       <button class="nav-icon-btn" onclick="openWishlist()" aria-label="Sevimlilər">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.3C7.5 17.3 3 13.6 3 9.2 3 6.3 5.2 4 8 4c1.7 0 3.1.9 4 2.2C12.9 4.9 14.3 4 16 4c2.8 0 5 2.3 5 5.2 0 4.4-4.5 8.1-9 11.1z"/></svg>
         <span class="cart-count" id="wishCount" style="display:none;">0</span>
@@ -257,6 +264,12 @@ textarea.field-input{resize:vertical;min-height:60px;}
     <div class="foot-bottom">© <span id="year"></span> <span id="storeNameLabel2">BAZAA</span>. Bütün hüquqlar qorunur.</div>
   </div>
 </footer>
+
+<div class="info-modal-overlay" id="accountModalOverlay" onclick="if(event.target===this)closeAccountModal()">
+  <div class="info-modal-box" id="accountModalBox" style="text-align:center;">
+    <button class="close-x" onclick="closeAccountModal()">✕</button>
+  </div>
+</div>
 
 <div class="info-modal-overlay" id="infoModalOverlay" onclick="if(event.target===this)closeInfo()">
   <div class="info-modal-box">
@@ -327,6 +340,62 @@ const sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPAB
 function money(n){ return Number(n).toFixed(2).replace(/\.00$/,'') + ' ₼'; }
 function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
 
+let currentUser = null;
+let pendingCheckoutAfterLogin = false;
+
+async function initAuth(){
+  const { data: { user } } = await sb.auth.getUser();
+  currentUser = user || null;
+  updateAccountIcon();
+  sb.auth.onAuthStateChange((event, session) => {
+    currentUser = session?.user || null;
+    updateAccountIcon();
+    if(currentUser && pendingCheckoutAfterLogin){
+      pendingCheckoutAfterLogin = false;
+      closeAccountModal();
+      goCheckout();
+    }
+  });
+}
+function updateAccountIcon(){
+  const btn = document.getElementById('accountBtn');
+  if(!btn) return;
+  btn.style.color = currentUser ? 'var(--brand)' : '';
+}
+function openAccountModal(){
+  const box = document.getElementById('accountModalBox');
+  if(currentUser){
+    const name = currentUser.user_metadata?.full_name || currentUser.email || 'İstifadəçi';
+    box.innerHTML = `
+      <button class="close-x" onclick="closeAccountModal()">✕</button>
+      <h3 style="margin-top:10px;">Salam, ${name}</h3>
+      <p style="color:var(--ink-soft);font-size:13px;margin-bottom:20px;">${currentUser.email||''}</p>
+      <button class="btn" style="background:#eee;color:#111;" onclick="logoutUser()">Çıxış et</button>
+    `;
+  } else {
+    box.innerHTML = `
+      <button class="close-x" onclick="closeAccountModal()">✕</button>
+      <h3 style="margin-top:10px;">Hesaba daxil ol</h3>
+      <p style="color:var(--ink-soft);font-size:13px;margin-bottom:20px;">Sifariş vermək üçün daxil olmalısınız.</p>
+      <button class="btn" onclick="loginWithGoogle()" style="display:flex;align-items:center;justify-content:center;gap:8px;">
+        <svg width="16" height="16" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.9 2.5 30.3 0 24 0 14.6 0 6.5 5.4 2.5 13.2l7.8 6c1.9-5.7 7.2-9.7 13.7-9.7z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 2.9-2.2 5.4-4.7 7l7.3 5.7c4.3-4 6.8-9.8 6.8-17.2z"/><path fill="#FBBC05" d="M10.3 19.2A14.5 14.5 0 0 0 9.5 24c0 1.7.3 3.3.8 4.8l-7.8 6A24 24 0 0 1 0 24c0-3.9.9-7.5 2.5-10.8l7.8 6z"/><path fill="#34A853" d="M24 48c6.3 0 11.9-2.1 15.8-5.6l-7.3-5.7c-2 1.4-4.7 2.2-8.5 2.2-6.5 0-11.8-4-13.7-9.7l-7.8 6C6.5 42.6 14.6 48 24 48z"/></svg>
+        Google ilə daxil ol
+      </button>
+    `;
+  }
+  document.getElementById('accountModalOverlay').classList.add('open');
+}
+function closeAccountModal(){ document.getElementById('accountModalOverlay').classList.remove('open'); }
+async function loginWithGoogle(){
+  await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.href } });
+}
+async function logoutUser(){
+  await sb.auth.signOut();
+  currentUser = null;
+  closeAccountModal();
+  showToast('Çıxış edildi');
+}
+
 let allProducts = [];
 let allCategories = [];
 let activeCategoryId = 'all';
@@ -338,10 +407,14 @@ async function trackPageView(){ try{ await sb.from('page_views').insert({ path: 
 async function loadSettings(){
   const { data } = await sb.from('site_settings').select('*').single();
   if(!data) return;
-  document.getElementById('storeNameLabel').textContent = data.store_name || 'BAZAA';
   document.getElementById('storeNameLabel2').textContent = data.store_name || 'BAZAA';
   document.getElementById('storeNameLabel3').textContent = data.store_name || 'BAZAA';
   document.title = data.store_name || 'BAZAA';
+  if(data.logo_url){
+    document.getElementById('logoLink').innerHTML = `<img src="${data.logo_url}" class="logo-img" alt="${data.store_name||'Logo'}">`;
+  } else {
+    document.getElementById('storeNameLabel').textContent = data.store_name || 'BAZAA';
+  }
   if(data.footer_about) document.getElementById('footerAboutEl').textContent = data.footer_about;
   const wrap = document.getElementById('heroVideoWrap');
   if(data.hero_video_url){ wrap.innerHTML = `<video src="${data.hero_video_url}" autoplay muted loop playsinline></video>`; }
@@ -525,7 +598,14 @@ function closeCart(){ document.getElementById('cartOverlay').classList.remove('o
 
 function goCheckout(){
   if(cart.length===0){ showToast('Səbət boşdur'); return; }
+  if(!currentUser){
+    closeCart();
+    pendingCheckoutAfterLogin = true;
+    openAccountModal();
+    return;
+  }
   closeCart();
+  if(currentUser.email) document.getElementById('coName').value = document.getElementById('coName').value || (currentUser.user_metadata?.full_name || '');
   document.getElementById('checkoutTotal').textContent = money(cartTotalValue());
   document.getElementById('checkoutOverlay').classList.add('open');
   document.getElementById('checkoutDrawer').classList.add('open');
@@ -557,6 +637,7 @@ async function submitOrder(){
     total,
     payment_method: 'card',
     status: 'pending',
+    customer_user_id: currentUser?.id || null,
   }).select().single();
 
   if(error || !order){
@@ -631,11 +712,17 @@ async function loadTestimonials(){
 }
 
 trackPageView();
+initAuth();
 loadSettings();
-loadCategories();
 loadTestimonials();
 loadCustomSections();
-loadProducts().then(()=>{ updateCartCount(); updateWishCount(); });
+document.getElementById('topLoader').style.width = '40%';
+Promise.all([loadProducts(), loadCategories()]).then(()=>{
+  updateCartCount(); updateWishCount();
+  const loader = document.getElementById('topLoader');
+  loader.style.width = '100%';
+  setTimeout(()=>loader.classList.add('done'), 200);
+});
 </script>
 </body>
 </html>

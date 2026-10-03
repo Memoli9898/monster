@@ -369,6 +369,20 @@ async function renderSettings(){
     <button class="btn" onclick="saveSiteSettings()">Yadda saxla</button>
   `;
 }
+async function uploadLogo(input){
+  const file = input.files[0];
+  if(!file) return;
+  document.getElementById('logoUploadStatus').textContent = 'Yüklənir...';
+  const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9.]+/g,'_');
+  const path = `logo/${Date.now()}-${safeName}`;
+  const { error } = await sb.storage.from('media').upload(path, file, { upsert: true });
+  if(error){ document.getElementById('logoUploadStatus').textContent = '❌ Xəta'; return; }
+  const { data } = sb.storage.from('media').getPublicUrl(path);
+  document.getElementById('stLogoUrl').value = data.publicUrl;
+  document.getElementById('logoPreview').src = data.publicUrl;
+  document.getElementById('logoPreview').style.display = 'block';
+  document.getElementById('logoUploadStatus').textContent = '✅ Yükləndi! "Yadda saxla" bas.';
+}
 async function uploadBannerImage(input){
   const file = input.files[0];
   if(!file) return;
@@ -400,6 +414,7 @@ async function saveSiteSettings(){
     store_name: document.getElementById('stName').value.trim(),
     hero_video_url: document.getElementById('stVideo').value.trim(),
     footer_about: document.getElementById('stFooterAbout').value.trim(),
+    logo_url: document.getElementById('stLogoUrl').value.trim(),
     banner_title: document.getElementById('stBannerTitle').value.trim(),
     banner_subtitle: document.getElementById('stBannerSub').value.trim(),
     banner_button_text: document.getElementById('stBannerBtn').value.trim(),
@@ -457,6 +472,14 @@ async function renderDesign(){
   main.innerHTML = `
     <h2>Dizayn</h2>
     <p style="color:var(--ink-soft);font-size:13px;margin-bottom:18px;">Saytın əsas rəng sxemi. Dəyişiklik dərhal bütün saytda tətbiq olunur.</p>
+    <label>Logo</label>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+      <img id="logoPreview" src="${s?.logo_url||''}" style="height:34px;width:auto;border:1px solid var(--line);border-radius:6px;padding:4px;display:${s?.logo_url?'block':'none'};">
+      <input type="file" id="logoFile" accept="image/*" style="display:none;" onchange="uploadLogo(this)">
+      <button class="btn" style="background:#eee;color:#111;width:auto;padding:8px 14px;font-size:12px;" onclick="document.getElementById('logoFile').click()">📁 Logo yüklə</button>
+      <span id="logoUploadStatus" style="font-size:11px;color:var(--ink-soft);"></span>
+    </div>
+    <input type="hidden" id="stLogoUrl" value="${s?.logo_url||''}">
     <label>Əsas (brend) rəng — düymələr, qiymətlər</label>
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
       <input type="color" id="colBrand" value="${s?.color_brand||'#2954E8'}" style="width:50px;height:38px;border:1px solid var(--line);border-radius:8px;">
