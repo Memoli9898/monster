@@ -54,6 +54,7 @@ export default async function handler(req, res) {
         callbackUrl: returnUrl,
         cardSave: false,
         operation: 'PURCHASE',
+        operationType: 'PURCHASE',
       }),
     });
 
