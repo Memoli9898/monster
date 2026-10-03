@@ -3,8 +3,8 @@
 // Supabase Dashboard -> Settings -> API-dən götür
 // ============================================
 window.SUPABASE_CONFIG = {
-  url: 'https://SENIN-PROJECT-ID.supabase.co',   // <- BURAYA öz Supabase Project URL-ini yaz
-  anonKey: 'SENIN-ANON-PUBLIC-KEY',                // <- BURAYA öz "anon public" açarını yaz (service_role YOX!)
+  url: 'https://xpuqpzvigfxaobiprpsx.supabase.co',
+  anonKey: 'sb_publishable_-nS3WSqqrpeL2TOyHAbLYg_wuFpRUWc',
 };
 
 // QEYD: "anon" açar public görünə bilər, bu normaldır — RLS (Row Level Security)
