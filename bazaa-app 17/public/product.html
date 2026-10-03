@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Məhsul — BAZAA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config/supabase.config.js"></script>
+<style>
+:root{--bg:#fff;--bg-alt:#F7F8FA;--ink:#111318;--ink-soft:#5A6072;--brand:#2954E8;--line:#E7E9EF;--danger:#E5433F;
+--safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Manrope',sans-serif;padding-top:var(--safe-t);padding-bottom:var(--safe-b);}
+.wrap{max-width:900px;margin:0 auto;padding:18px;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;cursor:pointer;}
+.back{display:inline-flex;align-items:center;gap:6px;color:var(--ink-soft);font-size:13px;font-weight:600;margin-bottom:16px;}
+.pgrid{display:grid;grid-template-columns:1fr;gap:28px;}
+@media(min-width:720px){.pgrid{grid-template-columns:1fr 1fr;}}
+.pimg{aspect-ratio:1/1;background:var(--bg-alt);border-radius:14px;overflow:hidden;position:relative;}
+.pimg img{width:100%;height:100%;object-fit:cover;display:none;}
+.pimg img.active{display:block;}
+.pimg-nav{position:absolute;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.85);border:none;display:flex;align-items:center;justify-content:center;}
+.pimg-nav svg{width:18px;height:18px;}
+.pimg-prev{left:10px;}
+.pimg-next{right:10px;}
+.thumb-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.thumb-row img{width:56px;height:56px;object-fit:cover;border-radius:8px;cursor:pointer;border:2px solid transparent;opacity:.6;}
+.thumb-row img.active{border-color:var(--brand);opacity:1;}
+h1{font-size:24px;margin:0 0 10px;}
+.price{font-size:22px;font-weight:800;color:var(--brand);}
+.price s{color:var(--ink-soft);font-weight:500;font-size:16px;margin-right:8px;}
+.desc{color:var(--ink-soft);font-size:14px;line-height:1.7;margin:16px 0 20px;}
+.stock-note{font-size:12.5px;color:var(--ink-soft);margin-bottom:16px;}
+.qty-select{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+.qty-select button{width:34px;height:34px;border:1px solid var(--line);background:var(--bg-alt);border-radius:8px;font-size:16px;}
+.btn{background:var(--brand);color:#fff;border:none;padding:14px 24px;border-radius:10px;font-weight:700;font-size:14.5px;width:100%;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+.loading{padding:80px 20px;text-align:center;color:var(--ink-soft);}
+.toast{position:fixed;bottom:calc(20px + var(--safe-b));left:50%;transform:translateX(-50%) translateY(10px);background:var(--ink);color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;z-index:120;opacity:0;pointer-events:none;transition:all .25s;font-weight:600;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+<div class="wrap" id="content"><div class="loading">Yüklənir...</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+if(!window.SUPABASE_CONFIG || window.SUPABASE_CONFIG.url.includes('SENIN-PROJECT-ID')){
+  document.getElementById('content').innerHTML = '<div class="loading" style="color:#E5433F;">⚠️ Supabase config doldurulmayıb.</div>';
+  throw new Error('config yoxdur');
+}
+const sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+function money(n){ return Number(n).toFixed(2).replace(/\.00$/,'') + ' ₼'; }
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+const params = new URLSearchParams(location.search);
+const productId = params.get('id');
+let qty = 1;
+let currentProduct = null;
+
+let galleryImages = [];
+let galleryIdx = 0;
+
+async function load(){
+  const { data: settings } = await sb.from('site_settings').select('color_brand,color_bg,color_ink').single();
+  if(settings){
+    if(settings.color_brand) document.documentElement.style.setProperty('--brand', settings.color_brand);
+    if(settings.color_bg) document.documentElement.style.setProperty('--bg', settings.color_bg);
+    if(settings.color_ink) document.documentElement.style.setProperty('--ink', settings.color_ink);
+  }
+  if(!productId){ document.getElementById('content').innerHTML = '<div class="loading">Məhsul tapılmadı.</div>'; return; }
+  const { data, error } = await sb.from('products').select('*').eq('id', productId).single();
+  if(error || !data){ document.getElementById('content').innerHTML = '<div class="loading">Məhsul tapılmadı.</div>'; return; }
+  currentProduct = data;
+  galleryImages = (data.images && data.images.length>0) ? data.images : [data.image_url || 'https://placehold.co/600x600/eee/999?text=Şəkil'];
+  galleryIdx = 0;
+  const out = data.stock<=0;
+  document.title = data.name + ' — BAZAA';
+  document.getElementById('content').innerHTML = `
+    <a class="back" href="index.html">← Mağazaya qayıt</a>
+    <div class="pgrid">
+      <div>
+        <div class="pimg" id="pimgWrap">
+          ${galleryImages.map((src,i)=>`<img src="${src}" class="${i===0?'active':''}">`).join('')}
+          ${galleryImages.length>1?`
+          <button class="pimg-nav pimg-prev" onclick="changeGalleryImg(-1)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+          </button>
+          <button class="pimg-nav pimg-next" onclick="changeGalleryImg(1)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>`:''}
+        </div>
+        ${galleryImages.length>1?`<div class="thumb-row" id="thumbRow">${galleryImages.map((src,i)=>`<img src="${src}" class="${i===0?'active':''}" onclick="setGalleryImg(${i})">`).join('')}</div>`:''}
+      </div>
+      <div>
+        <h1>${data.name}</h1>
+        <div class="price">${data.sale_price>0?`<s>${money(data.price)}</s>${money(data.sale_price)}`:money(data.price)}</div>
+        <p class="desc">${data.description||''}</p>
+        ${out?'<p style="color:var(--danger);font-weight:600;font-size:13px;margin-bottom:16px;">Hazırda stokda yoxdur</p>':`<p class="stock-note">Stokda: ${data.stock} ədəd</p>`}
+        ${!out?`
+        <div class="qty-select">
+          <button onclick="changeQty(-1)">−</button>
+          <span id="qtyLabel">1</span>
+          <button onclick="changeQty(1)">+</button>
+        </div>`:''}
+        <button class="btn" ${out?'disabled':''} onclick="addAndGo()">${out?'Stokda yoxdur':'Səbətə əlavə et'}</button>
+      </div>
+    </div>
+  `;
+}
+
+function setGalleryImg(i){
+  galleryIdx = i;
+  document.querySelectorAll('#pimgWrap img').forEach((img,idx)=>img.classList.toggle('active', idx===i));
+  document.querySelectorAll('#thumbRow img').forEach((img,idx)=>img.classList.toggle('active', idx===i));
+}
+function changeGalleryImg(dir){
+  const total = galleryImages.length;
+  setGalleryImg((galleryIdx + dir + total) % total);
+}
+
+function changeQty(d){
+  qty = Math.max(1, qty+d);
+  document.getElementById('qtyLabel').textContent = qty;
+}
+
+function addAndGo(){
+  let cart = JSON.parse(localStorage.getItem('bazaa_cart')||'[]');
+  const e = cart.find(c=>c.id===productId);
+  if(e) e.qty += qty; else cart.push({ id: productId, qty });
+  localStorage.setItem('bazaa_cart', JSON.stringify(cart));
+  showToast('Səbətə əlavə olundu');
+  setTimeout(()=>{ location.href = 'index.html'; }, 600);
+}
+
+load();
+</script>
+</body>
+</html>

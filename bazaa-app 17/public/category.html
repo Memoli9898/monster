@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kateqoriya — BAZAA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config/supabase.config.js"></script>
+<style>
+:root{
+  --bg:#fff; --bg-alt:#F7F8FA; --ink:#111318; --ink-soft:#5A6072;
+  --brand:#2954E8; --line:#E7E9EF; --danger:#E5433F;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Manrope',sans-serif;font-size:15px;padding-top:var(--safe-t);}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:18px;}
+a{color:inherit;text-decoration:none;}
+button{font-family:inherit;cursor:pointer;}
+img{max-width:100%;display:block;}
+header{padding:16px 0;border-bottom:1px solid var(--line);}
+.header-row{display:flex;align-items:center;justify-content:space-between;}
+.logo{font-weight:800;font-size:19px;}
+.back{color:var(--ink-soft);font-size:13px;font-weight:600;}
+.cat-hero{padding:28px 0 10px;}
+.cat-hero h1{font-size:26px;font-weight:800;margin:0;}
+.cat-hero p{color:var(--ink-soft);font-size:13px;margin:4px 0 0;}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding-block:24px;}
+@media(min-width:700px){.grid{grid-template-columns:repeat(4,1fr);}}
+.card{border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+.card-img{aspect-ratio:1/1;background:var(--bg-alt);position:relative;cursor:pointer;overflow:hidden;}
+.card-img img{width:100%;height:100%;object-fit:cover;display:none;}
+.card-img img.active{display:block;}
+.img-nav-btn{position:absolute;top:50%;transform:translateY(-50%);width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.85);border:none;display:flex;align-items:center;justify-content:center;z-index:2;}
+.img-nav-btn svg{width:14px;height:14px;}
+.img-nav-prev{left:6px;}
+.img-nav-next{right:6px;}
+.img-dots{position:absolute;bottom:8px;left:0;right:0;display:flex;justify-content:center;gap:4px;z-index:2;}
+.img-dots span{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.6);}
+.img-dots span.active{background:#fff;width:14px;border-radius:3px;}
+.stock-badge{position:absolute;top:8px;left:8px;background:var(--danger);color:#fff;font-size:10px;padding:3px 8px;border-radius:6px;font-weight:700;}
+.card-body{padding:10px 12px 12px;cursor:pointer;}
+.card h3{font-size:13px;margin:0 0 6px;}
+.price{font-weight:800;color:var(--brand);}
+.price s{color:var(--ink-soft);font-weight:400;font-size:12px;margin-right:6px;}
+.add-cart-btn{width:calc(100% - 24px);margin:0 12px 12px;background:#EAF0FF;color:var(--brand);border:none;padding:9px;border-radius:8px;font-weight:700;font-size:12.5px;}
+.add-cart-btn:disabled{opacity:.4;cursor:not-allowed;background:var(--bg-alt);color:var(--ink-soft);}
+.loading{padding:60px 20px;text-align:center;color:var(--ink-soft);grid-column:1/-1;}
+.toast{position:fixed;bottom:calc(20px + var(--safe-b));left:50%;transform:translateX(-50%) translateY(10px);background:var(--ink);color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;z-index:120;opacity:0;pointer-events:none;transition:all .25s;font-weight:600;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+
+<header><div class="wrap header-row">
+  <span class="logo" id="storeNameLabel">BAZAA</span>
+  <a class="back" href="index.html">← Mağazaya qayıt</a>
+</div></header>
+
+<div class="wrap cat-hero">
+  <h1 id="catName">Yüklənir...</h1>
+  <p id="catCount"></p>
+</div>
+
+<div class="wrap">
+  <div id="productGrid" class="grid"><div class="loading">Yüklənir...</div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+if(!window.SUPABASE_CONFIG || window.SUPABASE_CONFIG.url.includes('SENIN-PROJECT-ID')){
+  document.getElementById('productGrid').innerHTML = '<div class="loading" style="color:#E5433F;">⚠️ Supabase config doldurulmayıb.</div>';
+  throw new Error('config yoxdur');
+}
+const sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+function money(n){ return Number(n).toFixed(2).replace(/\.00$/,'') + ' ₼'; }
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+const params = new URLSearchParams(location.search);
+const categoryId = params.get('id');
+let cart = JSON.parse(localStorage.getItem('bazaa_cart')||'[]');
+let allProducts = [];
+
+function saveCart(){ localStorage.setItem('bazaa_cart', JSON.stringify(cart)); }
+function quickAddToCart(id){
+  const p = allProducts.find(x=>x.id===id);
+  if(!p || p.stock<=0) return;
+  const e = cart.find(c=>c.id===id);
+  if(e) e.qty+=1; else cart.push({ id, qty:1 });
+  saveCart();
+  showToast('Səbətə əlavə olundu');
+}
+
+function buildCard(p){
+  const out = p.stock<=0;
+  const imgs = (p.images && p.images.length>0) ? p.images : [p.image_url || 'https://placehold.co/400x400/eee/999?text=Şəkil'];
+  const cardId = 'card_' + p.id;
+  return `
+    <div class="card" id="${cardId}" data-idx="0">
+      <div class="card-img" onclick="location.href='product.html?id=${p.id}'">
+        ${out?'<span class="stock-badge">Bitib</span>':''}
+        ${imgs.map((src,i)=>`<img src="${src}" class="${i===0?'active':''}" loading="lazy">`).join('')}
+        ${imgs.length>1?`
+        <button class="img-nav-btn img-nav-prev" onclick="event.stopPropagation();cycleCardImage('${cardId}',${imgs.length},-1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <button class="img-nav-btn img-nav-next" onclick="event.stopPropagation();cycleCardImage('${cardId}',${imgs.length},1)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="img-dots">${imgs.map((_,i)=>`<span class="${i===0?'active':''}"></span>`).join('')}</div>
+        `:''}
+      </div>
+      <div class="card-body" onclick="location.href='product.html?id=${p.id}'">
+        <h3>${p.name}</h3>
+        <div class="price">${p.sale_price>0?`<s>${money(p.price)}</s>${money(p.sale_price)}`:money(p.price)}</div>
+      </div>
+      <button class="add-cart-btn" ${out?'disabled':''} onclick="event.stopPropagation();quickAddToCart('${p.id}')">${out?'Bitib':'+ Səbətə əlavə et'}</button>
+    </div>`;
+}
+function cycleCardImage(cardId, total, dir){
+  const card = document.getElementById(cardId);
+  if(!card) return;
+  let idx = parseInt(card.dataset.idx)||0;
+  idx = (idx + dir + total) % total;
+  card.dataset.idx = idx;
+  const imgs = card.querySelectorAll('.card-img img');
+  const dots = card.querySelectorAll('.img-dots span');
+  imgs.forEach((img,i)=>img.classList.toggle('active', i===idx));
+  dots.forEach((d,i)=>d.classList.toggle('active', i===idx));
+}
+
+async function load(){
+  const { data: settings } = await sb.from('site_settings').select('*').single();
+  if(settings){
+    document.getElementById('storeNameLabel').textContent = settings.store_name || 'BAZAA';
+    if(settings.color_brand) document.documentElement.style.setProperty('--brand', settings.color_brand);
+    if(settings.color_bg) document.documentElement.style.setProperty('--bg', settings.color_bg);
+    if(settings.color_ink) document.documentElement.style.setProperty('--ink', settings.color_ink);
+  }
+
+  if(!categoryId){ document.getElementById('catName').textContent = 'Kateqoriya tapılmadı'; return; }
+  const { data: cat } = await sb.from('categories').select('*').eq('id', categoryId).single();
+  document.getElementById('catName').textContent = cat ? cat.name : 'Kateqoriya tapılmadı';
+  document.title = (cat ? cat.name : 'Kateqoriya') + ' — BAZAA';
+
+  const { data: products } = await sb.from('products').select('*').eq('is_active', true).eq('category_id', categoryId).order('created_at',{ascending:false});
+  allProducts = products || [];
+  document.getElementById('catCount').textContent = allProducts.length + ' məhsul';
+  const grid = document.getElementById('productGrid');
+  grid.innerHTML = allProducts.length ? allProducts.map(buildCard).join('') : '<div class="loading">Bu kateqoriyada hələ məhsul yoxdur.</div>';
+}
+
+load();
+</script>
+</body>
+</html>

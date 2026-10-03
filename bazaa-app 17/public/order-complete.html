@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sifariş statusu — BAZAA</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff;--ink:#111318;--ink-soft:#5A6072;--brand:#2954E8;--ok:#0FA968;--danger:#E5433F;--line:#E7E9EF;
+--safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Manrope',sans-serif;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:20px;padding-top:calc(20px + var(--safe-t));padding-bottom:calc(20px + var(--safe-b));}
+.box{text-align:center;max-width:380px;}
+.icon{font-size:56px;margin-bottom:16px;}
+h1{font-size:20px;margin:0 0 8px;}
+p{color:var(--ink-soft);font-size:14px;margin:0 0 24px;}
+a.btn{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;padding:13px 26px;border-radius:10px;font-weight:700;font-size:14px;}
+.spinner{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;margin:0 auto 20px;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="box" id="content">
+  <div class="spinner"></div>
+  <h1>Ödəniş yoxlanılır...</h1>
+  <p>Zəhmət olmasa bir neçə saniyə gözləyin.</p>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const orderNumber = params.get('order');
+let attempts = 0;
+
+async function checkStatus(){
+  if(!orderNumber){
+    showResult('error', 'Sifariş nömrəsi tapılmadı.');
+    return;
+  }
+  attempts++;
+  try{
+    const resp = await fetch('/api/verify-payment', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ orderNumber })
+    });
+    const data = await resp.json();
+
+    if(data.status === 'paid'){
+      showResult('success', `Sifariş #${orderNumber} uğurla ödənildi!`);
+    } else if(data.status === 'FAILED'){
+      showResult('error', 'Ödəniş uğursuz oldu. Yenidən cəhd edə bilərsiniz.');
+    } else if(attempts < 6){
+      // Hələ "PENDING" ola bilər, 2 saniyədən bir 6 dəfəyə kimi yenidən yoxla
+      setTimeout(checkStatus, 2000);
+    } else {
+      showResult('pending', 'Ödəniş statusu hələ təsdiqlənmədi. Bir neçə dəqiqə sonra sifarişlər bölməsindən yoxlaya bilərsiniz.');
+    }
+  }catch(e){
+    if(attempts < 6){ setTimeout(checkStatus, 2000); }
+    else { showResult('error', 'Yoxlama zamanı xəta baş verdi.'); }
+  }
+}
+
+function showResult(type, message){
+  const icons = { success: '✅', error: '❌', pending: '⏳' };
+  const titles = { success: 'Ödəniş təsdiqləndi', error: 'Problem yarandı', pending: 'Gözlənilir' };
+  document.getElementById('content').innerHTML = `
+    <div class="icon">${icons[type]}</div>
+    <h1>${titles[type]}</h1>
+    <p>${message}</p>
+    <a class="btn" href="index.html">Mağazaya qayıt</a>
+  `;
+}
+
+checkStatus();
+</script>
+</body>
+</html>

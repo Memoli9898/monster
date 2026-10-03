@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="az">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BAZAA Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config/supabase.config.js"></script>
+<style>
+:root{--bg:#fff;--bg-alt:#F7F8FA;--ink:#111318;--ink-soft:#5A6072;--brand:#2954E8;--line:#E7E9EF;--danger:#E5433F;--ok:#0FA968;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:'Manrope',Arial,sans-serif;background:var(--bg);color:var(--ink);}
+.field{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px;font-size:14px;background:var(--bg-alt);}
+textarea.field{min-height:70px;resize:vertical;}
+label{font-size:12px;color:var(--ink-soft);font-weight:600;display:block;margin-bottom:5px;}
+.btn{background:var(--brand);color:#fff;border:none;padding:11px 20px;border-radius:8px;font-weight:700;cursor:pointer;font-size:13.5px;}
+.btn-danger{background:var(--danger);}
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.login-box{max-width:300px;width:100%;text-align:center;padding:20px;}
+.shell{display:flex;min-height:100vh;}
+.side{width:200px;border-right:1px solid var(--line);padding:16px;display:none;flex-direction:column;gap:4px;}
+.side button{text-align:left;background:none;border:none;padding:10px;border-radius:8px;font-size:13.5px;color:var(--ink-soft);cursor:pointer;}
+.side button.active{background:#EAF0FF;color:var(--brand);font-weight:700;}
+.main{flex:1;padding:24px;display:none;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;padding:8px;border-bottom:1px solid var(--line);color:var(--ink-soft);font-size:11px;text-transform:uppercase;}
+td{padding:8px;border-bottom:1px solid var(--line);}
+.card-stat{background:var(--bg-alt);border:1px solid var(--line);padding:14px;border-radius:10px;}
+.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px;}
+.modal-overlay{position:fixed;inset:0;background:rgb(0 0 0/45%);display:none;align-items:center;justify-content:center;z-index:99;padding:16px;}
+.modal-overlay.open{display:flex;}
+.modal-box{background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%;max-height:90vh;overflow-y:auto;}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+img.thumb{width:34px;height:34px;object-fit:cover;border-radius:6px;}
+</style>
+</head>
+<body>
+
+<div class="login-wrap" id="loginWrap">
+  <div class="login-box">
+    <h2>Admin girişi</h2>
+    <input class="field" id="adminPass" type="password" placeholder="Admin parolu">
+    <button class="btn" style="width:100%;" onclick="login()">Daxil ol</button>
+  </div>
+</div>
+
+<div class="shell" id="shell">
+  <aside class="side" id="side">
+    <button class="active" onclick="setTab('overview')" data-t="overview">📊 İcmal</button>
+    <button onclick="setTab('products')" data-t="products">🧺 Məhsullar</button>
+    <button onclick="setTab('categories')" data-t="categories">🏷️ Kateqoriyalar</button>
+    <button onclick="setTab('orders')" data-t="orders">📦 Sifarişlər</button>
+    <button onclick="setTab('settings')" data-t="settings">⚙️ Tənzimləmələr</button>
+    <button onclick="setTab('reviews')" data-t="reviews">⭐ Rəylər</button>
+    <button onclick="setTab('design')" data-t="design">🎨 Dizayn</button>
+    <button onclick="setTab('sections')" data-t="sections">📄 Bölmələr</button>
+    <button onclick="setTab('payment')" data-t="payment">💳 Ödəniş/WhatsApp</button>
+  </aside>
+  <main class="main" id="main"></main>
+</div>
+
+<div class="modal-overlay" id="pModal">
+  <div class="modal-box">
+    <h3 id="pModalTitle">Yeni məhsul</h3>
+    <input type="hidden" id="pfId">
+    <label>Şəkillər (birinci şəkil əsas şəkil kimi görünür)</label>
+    <div id="pImgGallery" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;"></div>
+    <input type="file" id="pfImageFile" accept="image/*" multiple style="display:none;" onchange="uploadProductImages(this)">
+    <button type="button" class="btn" style="background:#eee;color:#111;margin-bottom:10px;padding:8px 14px;font-size:12px;" onclick="document.getElementById('pfImageFile').click()">📁 Şəkil əlavə et (bir neçə seçə bilərsən)</button>
+    <div id="pImgUploadStatus" style="font-size:11px;color:var(--ink-soft);margin-bottom:8px;"></div>
+    <label>Video URL (opsional)</label><input class="field" id="pfVideo">
+    <label>Ad</label><input class="field" id="pfName">
+    <div class="row2">
+      <div><label>Qiymət (₼)</label><input class="field" id="pfPrice" type="number" step="0.01"></div>
+      <div><label>Endirimli (₼, opsional)</label><input class="field" id="pfSale" type="number" step="0.01"></div>
+    </div>
+    <div class="row2">
+      <div><label>Kateqoriya</label><select class="field" id="pfCat"></select></div>
+      <div><label>Stok</label><input class="field" id="pfStock" type="number"></div>
+    </div>
+    <label>Təsvir</label><textarea class="field" id="pfDesc"></textarea>
+    <div style="display:flex;gap:10px;">
+      <button class="btn" style="flex:1;background:#eee;color:#111;" onclick="closeModal()">Ləğv et</button>
+      <button class="btn" style="flex:1;" onclick="saveProduct()">Yadda saxla</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const sb = window.supabase.createClient(window.SUPABASE_CONFIG.url, window.SUPABASE_CONFIG.anonKey);
+let ADMIN_PASS = '';
+let allCategories = [];
+
+function login(){
+  ADMIN_PASS = document.getElementById('adminPass').value;
+  if(!ADMIN_PASS){ alert('Parol yaz'); return; }
+  // Real yoxlama /api/admin-settings çağırışında baş verəcək (server tərəfdə).
+  document.getElementById('loginWrap').style.display='none';
+  document.getElementById('side').style.display='flex';
+  document.getElementById('main').style.display='block';
+  setTab('overview');
+}
+
+function money(n){ return Number(n).toFixed(2).replace(/\.00$/,'') + ' ₼'; }
+
+function setTab(t){
+  document.querySelectorAll('.side button').forEach(b=>b.classList.toggle('active', b.dataset.t===t));
+  if(t==='overview') renderOverview();
+  if(t==='products') renderProducts();
+  if(t==='categories') renderCategories();
+  if(t==='orders') renderOrders();
+  if(t==='settings') renderSettings();
+  if(t==='reviews') renderReviews();
+  if(t==='design') renderDesign();
+  if(t==='sections') renderSections();
+  if(t==='payment') renderPayment();
+}
+
+async function renderOverview(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: orders } = await sb.from('orders').select('*').order('created_at',{ascending:false});
+  const { count: views } = await sb.from('page_views').select('*',{count:'exact',head:true});
+  const revenue = (orders||[]).filter(o=>o.status!=='cancelled').reduce((s,o)=>s+Number(o.total),0);
+  const pending = (orders||[]).filter(o=>o.status==='pending').length;
+  main.innerHTML = `
+    <h2>İcmal</h2>
+    <div class="stat-grid">
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Ümumi gəlir</div><div style="font-size:22px;font-weight:800;">${money(revenue)}</div></div>
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Sifariş sayı</div><div style="font-size:22px;font-weight:800;">${(orders||[]).length}</div></div>
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Gözləyən</div><div style="font-size:22px;font-weight:800;">${pending}</div></div>
+      <div class="card-stat"><div style="font-size:11px;color:var(--ink-soft);">Sayt baxışı (trafik)</div><div style="font-size:22px;font-weight:800;">${views||0}</div></div>
+    </div>
+    <h3>Son sifarişlər</h3>
+    <table><thead><tr><th>№</th><th>Müştəri</th><th>Məbləğ</th><th>Status</th></tr></thead>
+    <tbody>${(orders||[]).slice(0,8).map(o=>`<tr><td>${o.order_number}</td><td>${o.customer_name}</td><td>${money(o.total)}</td><td>${o.status}</td></tr>`).join('')||'<tr><td colspan="4">Sifariş yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+
+async function renderProducts(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: cats } = await sb.from('categories').select('*').order('sort_order',{ascending:true});
+  allCategories = cats || [];
+  const { data: products } = await sb.from('products').select('*').order('created_at',{ascending:false});
+  const catName = (id) => allCategories.find(c=>c.id===id)?.name || '—';
+  main.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h2 style="margin:0;">Məhsullar</h2>
+      <button class="btn" onclick="openModal()">+ Yeni məhsul</button>
+    </div>
+    <table><thead><tr><th></th><th>Ad</th><th>Kateqoriya</th><th>Qiymət</th><th>Stok</th><th></th></tr></thead>
+    <tbody>${(products||[]).map(p=>`
+      <tr>
+        <td><img class="thumb" src="${p.image_url||'https://placehold.co/60x60'}"></td>
+        <td>${p.name}</td>
+        <td>${catName(p.category_id)}</td>
+        <td>${p.sale_price>0?`<s>${money(p.price)}</s> ${money(p.sale_price)}`:money(p.price)}</td>
+        <td>${p.stock}</td>
+        <td><button class="btn" style="padding:5px 10px;font-size:11px;" onclick='editProduct(${JSON.stringify(p)})'>Düzəlt</button>
+            <button class="btn btn-danger" style="padding:5px 10px;font-size:11px;" onclick="deleteProduct('${p.id}')">Sil</button></td>
+      </tr>`).join('')||'<tr><td colspan="6">Məhsul yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+
+async function renderCategories(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: cats } = await sb.from('categories').select('*').order('sort_order',{ascending:true});
+  allCategories = cats || [];
+  main.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h2 style="margin:0;">Kateqoriyalar</h2>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:20px;max-width:400px;">
+      <input class="field" id="newCatName" placeholder="Yeni kateqoriya adı" style="margin-bottom:0;">
+      <button class="btn" style="width:auto;white-space:nowrap;" onclick="addCategory()">+ Əlavə et</button>
+    </div>
+    <table><thead><tr><th>Şəkil</th><th>Ad</th><th>Sıra</th><th></th></tr></thead>
+    <tbody>${allCategories.map(c=>`
+      <tr>
+        <td>
+          <img class="thumb" src="${c.image_url||'https://placehold.co/60x60'}" style="margin-bottom:4px;">
+          <input type="file" id="catImgFile_${c.id}" accept="image/*" style="display:none;" onchange="uploadCategoryImage('${c.id}', this)">
+          <button class="btn" style="padding:4px 8px;font-size:10px;background:#eee;color:#111;width:auto;" onclick="document.getElementById('catImgFile_${c.id}').click()">📁</button>
+        </td>
+        <td><input class="field" style="margin-bottom:0;" value="${c.name}" onchange="renameCategory('${c.id}',this.value)"></td>
+        <td style="width:80px;"><input class="field" type="number" style="margin-bottom:0;" value="${c.sort_order||0}" onchange="reorderCategory('${c.id}',this.value)"></td>
+        <td><button class="btn btn-danger" style="padding:5px 10px;font-size:11px;width:auto;" onclick="deleteCategory('${c.id}')">Sil</button></td>
+      </tr>`).join('')||'<tr><td colspan="4">Kateqoriya yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+async function uploadCategoryImage(catId, input){
+  const file = input.files[0];
+  if(!file) return;
+  const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9.]+/g,'_');
+  const path = `categories/${Date.now()}-${safeName}`;
+  const { error } = await sb.storage.from('media').upload(path, file, { upsert: true });
+  if(error){ alert('Xəta: ' + error.message); return; }
+  const { data } = sb.storage.from('media').getPublicUrl(path);
+  await sb.from('categories').update({ image_url: data.publicUrl }).eq('id', catId);
+  renderCategories();
+}
+async function addCategory(){
+  const name = document.getElementById('newCatName').value.trim();
+  if(!name) return;
+  const { error } = await sb.from('categories').insert({ name, sort_order: allCategories.length+1 });
+  if(error){ alert('Xəta: ' + error.message); return; }
+  renderCategories();
+}
+async function renameCategory(id, name){
+  await sb.from('categories').update({ name: name.trim() }).eq('id', id);
+}
+async function reorderCategory(id, sort_order){
+  await sb.from('categories').update({ sort_order: parseInt(sort_order)||0 }).eq('id', id);
+}
+async function deleteCategory(id){
+  if(!confirm('Bu kateqoriyanı silmək istəyirsən? (Bu kateqoriyadakı məhsullar "kateqoriyasız" qalacaq)')) return;
+  await sb.from('categories').delete().eq('id', id);
+  renderCategories();
+}
+
+let currentProductImages = [];
+
+function renderImgGallery(){
+  const wrap = document.getElementById('pImgGallery');
+  wrap.innerHTML = currentProductImages.map((url, i) => `
+    <div style="position:relative;">
+      <img src="${url}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:${i===0?'2px solid var(--brand)':'1px solid var(--line)'};">
+      <button type="button" onclick="removeProductImage(${i})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;line-height:1;">✕</button>
+      ${i===0?'<div style="position:absolute;bottom:-4px;left:0;right:0;text-align:center;font-size:8px;color:var(--brand);font-weight:700;">ƏSAS</div>':''}
+    </div>`).join('') || '<div style="font-size:11px;color:var(--ink-soft);">Hələ şəkil əlavə edilməyib</div>';
+}
+function removeProductImage(i){
+  currentProductImages.splice(i,1);
+  renderImgGallery();
+}
+async function uploadProductImages(input){
+  const files = Array.from(input.files);
+  if(files.length===0) return;
+  document.getElementById('pImgUploadStatus').textContent = `Yüklənir... (0/${files.length})`;
+  let done = 0;
+  for(const file of files){
+    const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9.]+/g,'_');
+    const path = `products/${Date.now()}-${Math.random().toString(36).slice(2,7)}-${safeName}`;
+    const { error } = await sb.storage.from('media').upload(path, file, { upsert: true });
+    if(!error){
+      const { data } = sb.storage.from('media').getPublicUrl(path);
+      currentProductImages.push(data.publicUrl);
+    }
+    done++;
+    document.getElementById('pImgUploadStatus').textContent = `Yüklənir... (${done}/${files.length})`;
+  }
+  renderImgGallery();
+  document.getElementById('pImgUploadStatus').textContent = '✅ Yükləndi!';
+  input.value = '';
+}
+
+async function populateCatSelect(selectedId){
+  if(allCategories.length===0){
+    const { data } = await sb.from('categories').select('*').order('sort_order',{ascending:true});
+    allCategories = data || [];
+  }
+  const sel = document.getElementById('pfCat');
+  sel.innerHTML = '<option value="">— Kateqoriyasız —</option>' +
+    allCategories.map(c=>`<option value="${c.id}" ${c.id===selectedId?'selected':''}>${c.name}</option>`).join('');
+}
+
+async function openModal(){
+  document.getElementById('pModalTitle').textContent='Yeni məhsul';
+  ['pfId','pfVideo','pfName','pfPrice','pfSale','pfStock','pfDesc'].forEach(id=>document.getElementById(id).value='');
+  currentProductImages = [];
+  renderImgGallery();
+  document.getElementById('pImgUploadStatus').textContent = '';
+  await populateCatSelect(null);
+  document.getElementById('pModal').classList.add('open');
+}
+async function editProduct(p){
+  document.getElementById('pModalTitle').textContent='Məhsulu düzəlt';
+  document.getElementById('pfId').value=p.id;
+  document.getElementById('pfVideo').value=p.video_url||'';
+  document.getElementById('pfName').value=p.name||'';
+  document.getElementById('pfPrice').value=p.price||0;
+  document.getElementById('pfSale').value=p.sale_price||'';
+  document.getElementById('pfStock').value=p.stock||0;
+  document.getElementById('pfDesc').value=p.description||'';
+  currentProductImages = (p.images && p.images.length>0) ? [...p.images] : (p.image_url ? [p.image_url] : []);
+  renderImgGallery();
+  document.getElementById('pImgUploadStatus').textContent = '';
+  await populateCatSelect(p.category_id||null);
+  document.getElementById('pModal').classList.add('open');
+}
+function closeModal(){ document.getElementById('pModal').classList.remove('open'); }
+
+async function saveProduct(){
+  const id = document.getElementById('pfId').value;
+  const catVal = document.getElementById('pfCat').value;
+  const payload = {
+    name: document.getElementById('pfName').value.trim(),
+    image_url: currentProductImages[0] || '',
+    images: currentProductImages,
+    video_url: document.getElementById('pfVideo').value.trim(),
+    price: parseFloat(document.getElementById('pfPrice').value)||0,
+    sale_price: parseFloat(document.getElementById('pfSale').value)||0,
+    category_id: catVal || null,
+    stock: parseInt(document.getElementById('pfStock').value)||0,
+    description: document.getElementById('pfDesc').value.trim(),
+  };
+  if(!payload.name){ alert('Ad yaz'); return; }
+  if(id){ await sb.from('products').update(payload).eq('id', id); }
+  else { await sb.from('products').insert(payload); }
+  closeModal();
+  renderProducts();
+}
+async function deleteProduct(id){
+  if(!confirm('Silmək istəyirsən?')) return;
+  await sb.from('products').delete().eq('id', id);
+  renderProducts();
+}
+
+async function renderOrders(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: orders } = await sb.from('orders').select('*').order('created_at',{ascending:false});
+  main.innerHTML = `
+    <h2>Sifarişlər</h2>
+    <table><thead><tr><th>№</th><th>Müştəri</th><th>Telefon</th><th>Məbləğ</th><th>Ödəniş</th><th>Status</th></tr></thead>
+    <tbody>${(orders||[]).map(o=>`
+      <tr>
+        <td>${o.order_number}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${money(o.total)}</td>
+        <td>${o.payment_method==='cash'?'Nağd':'Kart'}</td>
+        <td><select onchange="updateOrderStatus('${o.id}',this.value)">
+          ${['pending','paid','shipped','delivered','cancelled'].map(s=>`<option value="${s}" ${o.status===s?'selected':''}>${s}</option>`).join('')}
+        </select></td>
+      </tr>`).join('')||'<tr><td colspan="6">Sifariş yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+async function updateOrderStatus(id, status){
+  await sb.from('orders').update({ status }).eq('id', id);
+}
+
+async function renderSettings(){
+  const main = document.getElementById('main');
+  const { data: s } = await sb.from('site_settings').select('*').single();
+  main.innerHTML = `
+    <h2>Sayt Tənzimləmələri</h2>
+    <label>Mağaza adı</label><input class="field" id="stName" value="${s?.store_name||''}">
+    <label>Hero video URL (əsas menyuda animasiya)</label>
+    <input class="field" id="stVideo" value="${s?.hero_video_url||''}">
+    <input type="file" id="stVideoFile" accept="video/*" style="display:none;" onchange="uploadHeroVideo(this)">
+    <button class="btn" style="background:#eee;color:#111;margin-bottom:14px;" onclick="document.getElementById('stVideoFile').click()">📁 Video yüklə (kompüterdən)</button>
+    <div id="uploadStatus" style="font-size:12px;color:var(--ink-soft);margin-bottom:10px;"></div>
+    <label>Footer-dəki "haqqımızda" mətni</label><textarea class="field" id="stFooterAbout">${s?.footer_about||''}</textarea>
+
+    <h2 style="margin-top:28px;">Banner bölməsi ("Designed to last" tərzi)</h2>
+    <label>Banner başlıq</label><input class="field" id="stBannerTitle" value="${s?.banner_title||''}">
+    <label>Banner alt mətn</label><textarea class="field" id="stBannerSub">${s?.banner_subtitle||''}</textarea>
+    <label>Banner düymə mətni</label><input class="field" id="stBannerBtn" value="${s?.banner_button_text||'Kolleksiyaya bax'}">
+    <label>Banner şəkli</label>
+    <input class="field" id="stBannerImg" value="${s?.banner_image_url||''}">
+    <input type="file" id="stBannerImgFile" accept="image/*" style="display:none;" onchange="uploadBannerImage(this)">
+    <button class="btn" style="background:#eee;color:#111;margin-bottom:14px;" onclick="document.getElementById('stBannerImgFile').click()">📁 Şəkil yüklə</button>
+
+    <h2 style="margin-top:28px;">Footer mətnləri</h2>
+    <label>Çatdırılma şərtləri</label><textarea class="field" id="stDelivery" style="min-height:90px;">${s?.delivery_terms||''}</textarea>
+    <label>Geri qaytarma şərtləri</label><textarea class="field" id="stReturn" style="min-height:90px;">${s?.return_policy||''}</textarea>
+    <label>Əlaqə məlumatı (telefon, email, ünvan — istədiyin formada)</label><textarea class="field" id="stContact" style="min-height:90px;">${s?.contact_info||''}</textarea>
+
+    <button class="btn" onclick="saveSiteSettings()">Yadda saxla</button>
+  `;
+}
+async function uploadBannerImage(input){
+  const file = input.files[0];
+  if(!file) return;
+  const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9.]+/g,'_');
+  const path = `banner/${Date.now()}-${safeName}`;
+  const { error } = await sb.storage.from('media').upload(path, file, { upsert: true });
+  if(error){ alert('Xəta: ' + error.message); return; }
+  const { data } = sb.storage.from('media').getPublicUrl(path);
+  document.getElementById('stBannerImg').value = data.publicUrl;
+}
+async function uploadHeroVideo(input){
+  const file = input.files[0];
+  if(!file) return;
+  document.getElementById('uploadStatus').textContent = 'Yüklənir...';
+  const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9.]+/g,'_');
+  const path = `hero/${Date.now()}-${safeName}`;
+  const { error } = await sb.storage.from('media').upload(path, file, { upsert: true });
+  if(error){
+    document.getElementById('uploadStatus').textContent = '❌ Xəta: ' + error.message;
+    return;
+  }
+  const { data } = sb.storage.from('media').getPublicUrl(path);
+  document.getElementById('stVideo').value = data.publicUrl;
+  document.getElementById('uploadStatus').textContent = '✅ Yükləndi! İndi "Yadda saxla" bas.';
+}
+
+async function saveSiteSettings(){
+  await sb.from('site_settings').update({
+    store_name: document.getElementById('stName').value.trim(),
+    hero_video_url: document.getElementById('stVideo').value.trim(),
+    footer_about: document.getElementById('stFooterAbout').value.trim(),
+    banner_title: document.getElementById('stBannerTitle').value.trim(),
+    banner_subtitle: document.getElementById('stBannerSub').value.trim(),
+    banner_button_text: document.getElementById('stBannerBtn').value.trim(),
+    banner_image_url: document.getElementById('stBannerImg').value.trim(),
+    delivery_terms: document.getElementById('stDelivery').value.trim(),
+    return_policy: document.getElementById('stReturn').value.trim(),
+    contact_info: document.getElementById('stContact').value.trim(),
+  }).eq('id', 1);
+  alert('Saxlanıldı');
+}
+
+async function renderReviews(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: reviews } = await sb.from('testimonials').select('*').order('sort_order',{ascending:true});
+  main.innerHTML = `
+    <h2>Rəylər</h2>
+    <p style="color:var(--ink-soft);font-size:13px;margin-bottom:18px;">Saytın altındakı "Müştərilərimiz nə deyir" bölməsində görünəcək rəylər.</p>
+    <div style="background:var(--bg-alt);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:20px;max-width:440px;">
+      <label>Müştəri adı</label><input class="field" id="revName" placeholder="Ad Soyad">
+      <label>Şəhər (opsional)</label><input class="field" id="revLoc" placeholder="Bakı">
+      <label>Reytinq (1-5)</label><input class="field" id="revRating" type="number" min="1" max="5" step="0.5" value="5">
+      <label>Rəy mətni</label><textarea class="field" id="revText" placeholder="Məhsul çox keyfiyyətli idi..."></textarea>
+      <button class="btn" onclick="addReview()">+ Rəy əlavə et</button>
+    </div>
+    <table><thead><tr><th>Müştəri</th><th>Reytinq</th><th>Mətn</th><th></th></tr></thead>
+    <tbody>${(reviews||[]).map(r=>`
+      <tr>
+        <td>${r.customer_name}${r.location?' ('+r.location+')':''}</td>
+        <td>${'★'.repeat(Math.round(r.rating))}</td>
+        <td style="max-width:260px;">${r.review_text}</td>
+        <td><button class="btn btn-danger" style="padding:5px 10px;font-size:11px;width:auto;" onclick="deleteReview('${r.id}')">Sil</button></td>
+      </tr>`).join('')||'<tr><td colspan="4">Hələ rəy yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+async function addReview(){
+  const customer_name = document.getElementById('revName').value.trim();
+  const location = document.getElementById('revLoc').value.trim();
+  const rating = parseFloat(document.getElementById('revRating').value)||5;
+  const review_text = document.getElementById('revText').value.trim();
+  if(!customer_name || !review_text){ alert('Ad və rəy mətni lazımdır'); return; }
+  const { data: existing } = await sb.from('testimonials').select('id',{count:'exact'});
+  await sb.from('testimonials').insert({ customer_name, location, rating, review_text, sort_order: (existing?.length||0)+1 });
+  renderReviews();
+}
+async function deleteReview(id){
+  if(!confirm('Bu rəyi silmək istəyirsən?')) return;
+  await sb.from('testimonials').delete().eq('id', id);
+  renderReviews();
+}
+
+async function renderDesign(){
+  const main = document.getElementById('main');
+  const { data: s } = await sb.from('site_settings').select('*').single();
+  main.innerHTML = `
+    <h2>Dizayn</h2>
+    <p style="color:var(--ink-soft);font-size:13px;margin-bottom:18px;">Saytın əsas rəng sxemi. Dəyişiklik dərhal bütün saytda tətbiq olunur.</p>
+    <label>Əsas (brend) rəng — düymələr, qiymətlər</label>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+      <input type="color" id="colBrand" value="${s?.color_brand||'#2954E8'}" style="width:50px;height:38px;border:1px solid var(--line);border-radius:8px;">
+      <input class="field" id="colBrandHex" value="${s?.color_brand||'#2954E8'}" style="margin-bottom:0;" oninput="document.getElementById('colBrand').value=this.value">
+    </div>
+    <label>Fon rəngi</label>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+      <input type="color" id="colBg" value="${s?.color_bg||'#FFFFFF'}" style="width:50px;height:38px;border:1px solid var(--line);border-radius:8px;">
+      <input class="field" id="colBgHex" value="${s?.color_bg||'#FFFFFF'}" style="margin-bottom:0;" oninput="document.getElementById('colBg').value=this.value">
+    </div>
+    <label>Mətn rəngi</label>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;">
+      <input type="color" id="colInk" value="${s?.color_ink||'#111318'}" style="width:50px;height:38px;border:1px solid var(--line);border-radius:8px;">
+      <input class="field" id="colInkHex" value="${s?.color_ink||'#111318'}" style="margin-bottom:0;" oninput="document.getElementById('colInk').value=this.value">
+    </div>
+    <button class="btn" onclick="saveDesign()">Yadda saxla</button>
+  `;
+  ['colBrand','colBg','colInk'].forEach(id=>{
+    document.getElementById(id).addEventListener('input', function(){
+      document.getElementById(id+'Hex').value = this.value;
+    });
+  });
+}
+async function saveDesign(){
+  await sb.from('site_settings').update({
+    color_brand: document.getElementById('colBrand').value,
+    color_bg: document.getElementById('colBg').value,
+    color_ink: document.getElementById('colInk').value,
+  }).eq('id', 1);
+  alert('Saxlanıldı — saytı yeniləyəndə (refresh) görəcəksən');
+}
+
+async function renderSections(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const { data: sections } = await sb.from('custom_sections').select('*').order('sort_order',{ascending:true});
+  main.innerHTML = `
+    <h2>Sərbəst Bölmələr</h2>
+    <p style="color:var(--ink-soft);font-size:13px;margin-bottom:18px;">Burda əlavə etdiyin bölmələr, saytda "Bütün məhsullar" ilə "Müştərilərimiz nə deyir" arasında, sıra nömrəsinə görə göstərilir.</p>
+    <div style="background:var(--bg-alt);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:20px;max-width:480px;">
+      <label>Başlıq</label><input class="field" id="secTitle" placeholder="Bölmənin başlığı">
+      <label>Mətn</label><textarea class="field" id="secBody" placeholder="Bölmənin məzmunu" style="min-height:80px;"></textarea>
+      <label>Şəkil (opsional)</label>
+      <input class="field" id="secImage" placeholder="https://...">
+      <input type="file" id="secImageFile" accept="image/*" style="display:none;" onchange="uploadSectionImage(this)">
+      <button type="button" class="btn" style="background:#eee;color:#111;margin-bottom:10px;padding:8px 14px;font-size:12px;" onclick="document.getElementById('secImageFile').click()">📁 Şəkil yüklə</button>
+      <label>Sıra</label><input class="field" id="secOrder" type="number" value="${(sections?.length||0)+1}">
+      <button class="btn" onclick="addSection()">+ Bölmə əlavə et</button>
+    </div>
+    <table><thead><tr><th>Başlıq</th><th>Sıra</th><th>Aktiv</th><th></th></tr></thead>
+    <tbody>${(sections||[]).map(s=>`
+      <tr>
+        <td>${s.title||'(başlıqsız)'}</td>
+        <td>${s.sort_order}</td>
+        <td><input type="checkbox" ${s.is_active?'checked':''} onchange="toggleSection('${s.id}',this.checked)"></td>
+        <td><button class="btn btn-danger" style="padding:5px 10px;font-size:11px;width:auto;" onclick="deleteSection('${s.id}')">Sil</button></td>
+      </tr>`).join('')||'<tr><td colspan="4">Hələ bölmə yoxdur</td></tr>'}</tbody></table>
+  `;
+}
+async function uploadSectionImage(input){
+  const file = input.files[0];
+  if(!file) return;
+  const safeName = file.name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9.]+/g,'_');
+  const path = `sections/${Date.now()}-${safeName}`;
+  const { error } = await sb.storage.from('media').upload(path, file, { upsert: true });
+  if(error){ alert('Xəta: ' + error.message); return; }
+  const { data } = sb.storage.from('media').getPublicUrl(path);
+  document.getElementById('secImage').value = data.publicUrl;
+}
+async function addSection(){
+  const title = document.getElementById('secTitle').value.trim();
+  const body = document.getElementById('secBody').value.trim();
+  const image_url = document.getElementById('secImage').value.trim();
+  const sort_order = parseInt(document.getElementById('secOrder').value)||0;
+  if(!title && !body){ alert('Başlıq və ya mətn yaz'); return; }
+  await sb.from('custom_sections').insert({ title, body, image_url, sort_order });
+  renderSections();
+}
+async function toggleSection(id, checked){
+  await sb.from('custom_sections').update({ is_active: checked }).eq('id', id);
+}
+async function deleteSection(id){
+  if(!confirm('Bu bölməni silmək istəyirsən?')) return;
+  await sb.from('custom_sections').delete().eq('id', id);
+  renderSections();
+}
+
+async function renderPayment(){
+  const main = document.getElementById('main');
+  main.innerHTML = '<p>Yüklənir...</p>';
+  const resp = await fetch('/api/admin-settings', { headers: { 'x-admin-password': ADMIN_PASS } });
+  if(resp.status === 401){
+    main.innerHTML = '<p style="color:red;"><b>Parol yanlışdır (401).</b> Giriş ekranında Vercel-dəki <code>ADMIN_PASSWORD</code> ilə eyni parolu yazmalısan. Səhifəni yeniləyib düzgün parolla yenidən daxil ol.</p>';
+    return;
+  }
+  if(!resp.ok){
+    main.innerHTML = `<p style="color:red;"><b>Server xətası (${resp.status}).</b> Vercel → Settings → Environment Variables-da <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code> və <code>ADMIN_PASSWORD</code> təyin olunubmu yoxla, sonra Redeploy et.</p>`;
+    return;
+  }
+  const { payment, whatsapp } = await resp.json();
+  main.innerHTML = `
+    <h2>Ödəniş (Payriff/GoldenPay)</h2>
+    <label>Provider</label><input class="field" id="payProvider" value="${payment?.provider||''}">
+    <label>Merchant ID</label><input class="field" id="payMerchant" value="${payment?.merchant_id||''}">
+    <label>API Key</label><input class="field" id="payApiKey" value="${payment?.api_key||''}">
+    <label>Bank adı</label><input class="field" id="payBank" value="${payment?.bank_name||''}">
+    <label>IBAN</label><input class="field" id="payIban" value="${payment?.iban||''}">
+    <label>Hesab sahibi</label><input class="field" id="payAccName" value="${payment?.account_name||''}">
+    <label>Ödəniş qeydi</label><textarea class="field" id="payNote">${payment?.pay_note||''}</textarea>
+    <button class="btn" onclick="savePaymentSettings()">Yadda saxla (Ödəniş)</button>
+
+    <h2 style="margin-top:30px;">WhatsApp (Green-API)</h2>
+    <label>Instance ID</label><input class="field" id="waInstance" value="${whatsapp?.instance_id||''}">
+    <label>API Token</label><input class="field" id="waToken" value="${whatsapp?.api_token||''}">
+    <label>Bildiriş göndəriləcək WhatsApp nömrə</label><input class="field" id="waPhone" value="${whatsapp?.notify_phone||''}">
+    <p style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;">Nömrəni beynəlxalq formatda yaz, + və boşluq olmadan. Məs: <b>994501234567</b></p>
+    <button class="btn" onclick="saveWhatsappSettings()">Yadda saxla (WhatsApp)</button>
+    <button class="btn" style="background:#0FA968;margin-left:8px;" onclick="testWhatsapp()">📲 Test mesajı göndər</button>
+  `;
+}
+async function savePaymentSettings(){
+  const payment = {
+    provider: document.getElementById('payProvider').value.trim(),
+    merchant_id: document.getElementById('payMerchant').value.trim(),
+    api_key: document.getElementById('payApiKey').value.trim(),
+    bank_name: document.getElementById('payBank').value.trim(),
+    iban: document.getElementById('payIban').value.trim(),
+    account_name: document.getElementById('payAccName').value.trim(),
+    pay_note: document.getElementById('payNote').value.trim(),
+  };
+  await fetch('/api/admin-settings', {
+    method:'POST', headers:{'Content-Type':'application/json','x-admin-password':ADMIN_PASS},
+    body: JSON.stringify({ payment })
+  });
+  alert('Saxlanıldı');
+}
+async function testWhatsapp(){
+  const resp = await fetch('/api/admin-settings', {
+    method:'POST', headers:{'Content-Type':'application/json','x-admin-password':ADMIN_PASS},
+    body: JSON.stringify({ testWhatsapp: true })
+  });
+  const data = await resp.json().catch(()=>({}));
+  if(resp.ok){ alert('✅ Test mesajı göndərildi! WhatsApp-ı yoxla.'); }
+  else { alert('❌ Xəta: ' + (data.error || resp.status) + (data.details ? '\n\n' + data.details : '')); }
+}
+async function saveWhatsappSettings(){
+  const whatsapp = {
+    instance_id: document.getElementById('waInstance').value.trim(),
+    api_token: document.getElementById('waToken').value.trim(),
+    notify_phone: document.getElementById('waPhone').value.trim(),
+  };
+  await fetch('/api/admin-settings', {
+    method:'POST', headers:{'Content-Type':'application/json','x-admin-password':ADMIN_PASS},
+    body: JSON.stringify({ whatsapp })
+  });
+  alert('Saxlanıldı');
+}
+</script>
+</body>
+</html>
